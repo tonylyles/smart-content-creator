@@ -1,0 +1,14 @@
+version: '3.8'
+services:
+  qdrant:
+    image: qdrant/qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+
+  # 这里可以预留未来Python应用的位置
+  # app:
+  #   build: .
+  #   depends_on:
+  #     - qdrant
