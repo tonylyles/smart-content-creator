@@ -1,0 +1,19 @@
+smart-content-creator/                 # 项目根目录
+├── src/                             # 源代码主目录
+│   ├── main.py                      # 系统主入口 (曾睿负责)
+│   ├── scheduler.py                 # 定时任务调度 (曾睿负责)
+│   ├── workflow.py                  # 工作流引擎 (曾睿负责)
+│   ├── config.py                    # 配置管理 (曾睿负责)
+│   ├── spiders/                     # 爬虫目录 (胡圳刚负责)
+│   │   └── (各网站专用爬虫文件)      # 具体爬虫脚本
+│   ├── data_cleaner.py              # 数据清洗模块 (胡圳刚负责)
+│   ├── knowledge_base.py            # 知识库管理 (胡圳刚负责)
+│   ├── data_storage.py              # 数据存储接口 (胡圳刚负责)
+│   ├── rag/                         # 检索增强生成模块 (刘凯睿负责)
+│   ├── generator.py                 # 内容生成引擎 (刘凯睿负责)
+│   ├── prompt_engine.py             # 提示词引擎 (刘凯睿负责)
+│   ├── evaluator.py                 # 内容质量评估 (刘凯睿负责)
+│   └── ui.py                        # 用户界面 (刘凯睿负责)
+├── requirements.txt                 # 项目依赖 (曾睿维护)
+├── .gitignore                       # Git忽略文件
+└── README.md                        # 项目说明文档
