@@ -1,0 +1,16 @@
+# 爬虫依赖
+requests>=2.31.0
+beautifulsoup4>=4.12.2
+
+# RAG相关
+sentence-transformers>=2.2.2
+faiss-cpu>=1.7.4
+
+# 定时任务
+schedule>=1.2.0
+
+# 数据库
+sqlite3
+
+# 其他
+python-dotenv>=1.0.0
