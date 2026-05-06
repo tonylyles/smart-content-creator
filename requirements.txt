@@ -9,8 +9,10 @@ faiss-cpu>=1.7.4
 # 定时任务
 schedule>=1.2.0
 
-# 数据库
-sqlite3
+# 数据库（sqlite3 为 Python 内置模块）
+
+# Web UI
+gradio>=4.0.0
 
 # 其他
 python-dotenv>=1.0.0
