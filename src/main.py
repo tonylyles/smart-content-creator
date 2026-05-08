@@ -40,6 +40,15 @@ except Exception as e:
 
 # ==================== 导入队友模块（带容错） ====================
 
+# ---------- 防 Mock 开关 ----------
+# 如果 LLM_API_KEY 存在，强制使用真实类，导入失败直接报错
+_FORCE_REAL = bool(os.getenv("LLM_API_KEY", ""))
+if _FORCE_REAL:
+    print("[启动] 🔒 检测到 LLM_API_KEY，已启用防 Mock 模式")
+    print("[启动] 💡 所有模块将使用真实实现，导入失败将直接抛出异常")
+else:
+    print("[启动] ℹ️ 未检测到 LLM_API_KEY，将使用容错兜底模式")
+
 # ---------- 凯睿的模块 ----------
 
 # 1. PromptEngine（提示词引擎）
@@ -48,6 +57,9 @@ try:
     PromptEngineClass = PromptEngine
     print("[启动] ✅ 导入 PromptEngine（凯睿）")
 except ImportError as e:
+    if _FORCE_REAL:
+        print(f"[启动] ❌ PromptEngine 导入失败（防 Mock 模式，直接报错）: {e}")
+        raise
     print(f"[启动] ⚠️ 导入 PromptEngine 失败: {e}，创建虚拟类")
     class PromptEngineClass:
         """虚拟 PromptEngine —— 原模块缺失时的兜底替代"""
@@ -56,6 +68,9 @@ except ImportError as e:
         def build_prompt(self, **kwargs):
             return {"system_prompt": "Mock", "user_prompt": "Mock"}
 except Exception as e:
+    if _FORCE_REAL:
+        print(f"[启动] ❌ PromptEngine 导入异常（防 Mock 模式，直接报错）: {e}")
+        raise
     print(f"[启动] ❌ PromptEngine 导入异常: {e}")
     class PromptEngineClass:
         def __init__(self, config=None):
@@ -69,6 +84,9 @@ try:
     RAGRetrieverClass = RAGRetriever
     print("[启动] ✅ 导入 RAGRetriever（凯睿）")
 except ImportError as e:
+    if _FORCE_REAL:
+        print(f"[启动] ❌ RAGRetriever 导入失败（防 Mock 模式，直接报错）: {e}")
+        raise
     print(f"[启动] ⚠️ 导入 RAGRetriever 失败: {e}，创建虚拟类")
     class RAGRetrieverClass:
         """虚拟 RAGRetriever —— 原模块缺失时的兜底替代"""
@@ -89,6 +107,9 @@ except ImportError as e:
         def expand_query(self, query, scene_type=None):
             return query
 except Exception as e:
+    if _FORCE_REAL:
+        print(f"[启动] ❌ RAGRetriever 导入异常（防 Mock 模式，直接报错）: {e}")
+        raise
     print(f"[启动] ❌ RAGRetriever 导入异常: {e}")
     class RAGRetrieverClass:
         def __init__(self, config=None, **kwargs):
@@ -102,6 +123,9 @@ try:
     ContentGeneratorClass = ContentGenerator
     print("[启动] ✅ 导入 ContentGenerator（凯睿）")
 except ImportError as e:
+    if _FORCE_REAL:
+        print(f"[启动] ❌ ContentGenerator 导入失败（防 Mock 模式，直接报错）: {e}")
+        raise
     print(f"[启动] ⚠️ 导入 ContentGenerator 失败: {e}，创建虚拟类")
     class ContentGeneratorClass:
         """虚拟 ContentGenerator —— 原模块缺失时的兜底替代"""
@@ -119,6 +143,9 @@ except ImportError as e:
                 "scene_type": scene_type,
             }
 except Exception as e:
+    if _FORCE_REAL:
+        print(f"[启动] ❌ ContentGenerator 导入异常（防 Mock 模式，直接报错）: {e}")
+        raise
     print(f"[启动] ❌ ContentGenerator 导入异常: {e}")
     class ContentGeneratorClass:
         def __init__(self, config=None, prompt_engine=None):
@@ -361,189 +388,83 @@ if __name__ == "__main__":
     engine, scheduler, components = init_system()
 
     print("=" * 60)
-    print("  🧪 开始端到端测试")
+    print("  🔥 全链路点亮测试 —— 广州周五特供版")
+    print(f"  当前时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S %A')}")
+    print(f"  防 Mock 模式: {'开启 🔒' if _FORCE_REAL else '关闭'}")
     print("=" * 60 + "\n")
 
-    # ---- 测试1：单阶段 RAG 检索 ----
-    print("【测试1】RAG 检索")
-    print("-" * 40)
-    try:
-        rag_result = engine.run("rag_search", {
-            "query": "广州环保政策 2026",
-            "top_k": 3,
-        })
-        print(f"  状态: {rag_result['status']}")
-        if rag_result['status'] == 'success':
-            print(f"  检索到 {len(rag_result['data'])} 条结果")
-            for i, item in enumerate(rag_result['data'][:2]):
-                print(f"    [{i+1}] {item.get('title', 'N/A')} (score={item.get('score', 'N/A')})")
-        else:
-            print(f"  错误: {rag_result.get('message')}")
-    except Exception as e:
-        print(f"  ❌ 测试1异常: {e}")
-        traceback.print_exc()
+    # ---- 广州周五特供测试用例 ----
+    test_input = {
+        "topic": "广州海珠区周末去哪玩",
+        "location": "广州",          # 必须包含，触发业务规则
+        "current_date": "2026-05-08", # 注入日期，触发时间策略
+        "current_day": "Friday",     # 兼容：也注入星期
+        "user_mood": "relaxed",      # 模拟周五下午的松弛感
+    }
 
-    print()
+    print(f"📋 测试输入: {test_input}\n")
 
-    # ---- 测试2：单阶段内容生成 ----
-    print("【测试2】内容生成")
-    print("-" * 40)
-    try:
-        gen_result = engine.run("generate_article", {
-            "topic": "广州环保",
-            "content_type": "article",
-            "scene_type": "municipal",
-            "keywords": ["污水处理", "绿色能源", "碳中和"],
-        })
-        print(f"  状态: {gen_result['status']}")
-        if gen_result['status'] == 'success':
-            data = gen_result['data']
-            # 打印生成文章的前几行
-            markdown = data.get("markdown", "")
-            lines = markdown.split("\n")[:5]
-            print(f"  生成耗时: {data.get('generation_time_ms', 'N/A')}ms")
-            print(f"  内容预览:")
-            for line in lines:
-                print(f"    {line}")
-            if len(markdown.split("\n")) > 5:
-                print("    ...")
-        else:
-            print(f"  错误: {gen_result.get('message')}")
-    except Exception as e:
-        print(f"  ❌ 测试2异常: {e}")
-        traceback.print_exc()
-
-    print()
-
-    # ---- 测试3：链式流水线（RAG → 生成，带转换器） ----
-    print("【测试3】链式流水线（RAG 检索 → 内容生成，带数据转换器）")
-    print("-" * 40)
+    # 执行链式流水线：RAG 检索 → 内容生成
+    print("🚀 执行流水线: rag_search → generate_article")
+    print("-" * 60)
     try:
         pipeline_result = engine.run_pipeline(
             stages=["rag_search", "generate_article"],
-            input_data={
-                "topic": "广州环保",
-                "location": "广州",
-                "content_type": "article",
-                "keywords": ["环保政策", "绿色发展"],
-            },
+            input_data=test_input,
         )
-        print(f"  流水线状态: {pipeline_result['status']}")
-        if pipeline_result['status'] == 'success':
-            final = pipeline_result.get('data', {})
-            md = final.get("markdown", "")
-            if md:
-                lines = md.split("\n")[:4]
-                print(f"  内容预览:")
-                for line in lines:
-                    print(f"    {line}")
-                if len(md.split("\n")) > 4:
-                    print("    ...")
+        print("-" * 60)
+
+        if pipeline_result["status"] == "success":
+            # 从 stages_completed 取生成阶段的原始输出（避免转换器覆盖）
+            stages_done = pipeline_result.get("stages_completed", {})
+            gen_stage = stages_done.get("generate_article", {}).get("data", {})
+            final = pipeline_result.get("data", {})
+
+            # 优先从生成阶段取 markdown，其次从转换后的 final 取 content
+            md = gen_stage.get("markdown", "") or final.get("content", "") or final.get("markdown", "")
+
+            print(f"\n✅ 流水线成功！")
+            print(f"  生成耗时: {gen_stage.get('generation_time_ms', 'N/A')}ms")
+            print(f"  场景类型: {gen_stage.get('scene_type', final.get('scene_type', 'N/A'))}")
+
+            # 探针检测：检查生成内容是否包含时空特征词
+            probe_words = ["周末", "海珠", "大湾区", "饮茶", "广州", "周五"]
+            found = [w for w in probe_words if w in md]
+            missing = [w for w in probe_words if w not in md]
+
+            print(f"\n🔬 探针检测结果:")
+            print(f"  命中关键词: {found if found else '无'}")
+            print(f"  未命中: {missing if missing else '无'}")
+
+            if found:
+                print(f"  ✅ 系统「活了」！生成内容包含真实上下文感知。")
             else:
-                print(f"  最终输出: {str(final)[:150]}...")
+                print(f"  ⚠️ 内容未包含预期关键词，可能走了 Mock 路径。")
+
+            # 输出生成内容预览
+            print(f"\n📝 生成内容预览:")
+            print("=" * 60)
+            # 输出前 1500 字符
+            preview = md[:1500] if len(md) > 1500 else md
+            print(preview)
+            if len(md) > 1500:
+                print(f"\n... (共 {len(md)} 字符，已截断)")
+            print("=" * 60)
+
+            # 保存完整输出到文件
+            output_path = os.path.join(_project_root, "test_output.md")
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(md)
+            print(f"\n💾 完整内容已保存到: {output_path}")
+
         else:
+            print(f"\n❌ 流水线失败！")
             print(f"  失败阶段: {pipeline_result.get('failed_stage', 'N/A')}")
-            print(f"  错误信息: {pipeline_result.get('message')}")
+            print(f"  错误信息: {pipeline_result.get('message', 'N/A')}")
+            print(f"\n💡 提示: 这说明某个真实模块报错了，根据上面的错误信息排查依赖。")
+            print(f"   常见原因: pip install langchain-openai openai httpx")
+
     except Exception as e:
-        print(f"  ❌ 测试3异常: {e}")
+        print(f"\n💥 测试异常: {e}")
         traceback.print_exc()
-
-    print()
-
-    # ---- 测试4：三阶段完整流水线（RAG → 生成 → 评估） ----
-    print("【测试4】三阶段完整流水线（RAG → 生成 → 评估）")
-    print("-" * 40)
-    try:
-        full_result = engine.run_pipeline(
-            stages=["rag_search", "generate_article", "evaluate"],
-            input_data={
-                "topic": "广州水环境治理",
-                "location": "广州",
-                "scene_type": "municipal",
-                "content_type": "article",
-                "keywords": ["污水处理", "碳中和"],
-            },
-        )
-        print(f"  流水线状态: {full_result['status']}")
-        if full_result['status'] == 'success':
-            stages_done = full_result.get('stages_completed', {})
-            for sname, sinfo in stages_done.items():
-                status = sinfo.get('status', '?')
-                data = sinfo.get('data', {})
-                if sname == "rag_search" and isinstance(data, list):
-                    print(f"  [{sname}] 检索 {len(data)} 条, 状态: {status}")
-                elif sname == "generate_article" and isinstance(data, dict):
-                    print(f"  [{sname}] 耗时 {data.get('generation_time_ms', 0)}ms, 状态: {status}")
-                elif sname == "evaluate" and isinstance(data, dict):
-                    print(f"  [{sname}] 综合评分: {data.get('overall', 'N/A')}, "
-                          f"结果: {data.get('result', 'N/A')}, 状态: {status}")
-                else:
-                    print(f"  [{sname}] 状态: {status}")
-        else:
-            print(f"  失败阶段: {full_result.get('failed_stage', 'N/A')}")
-    except Exception as e:
-        print(f"  ❌ 测试4异常: {e}")
-        traceback.print_exc()
-
-    print()
-
-    # ---- 测试5：UI 兼容接口（run_task） ----
-    print("【测试5】UI 兼容接口 —— 模拟凯睿 UI 调用")
-    print("-" * 40)
-    try:
-        ui_result = engine.run_task({
-            "action": "generate",
-            "title": "2026年工业废气治理新趋势",
-            "content_type": "tech_trend",
-            "scene_type": "industrial",
-            "keywords": ["VOCs", "催化燃烧"],
-        })
-        if isinstance(ui_result, dict):
-            md = ui_result.get("markdown", "")
-            review = ui_result.get("review", {})
-            print(f"  生成耗时: {ui_result.get('generation_time_ms', 0)}ms")
-            if review:
-                print(f"  自动评估: {review.get('result', 'N/A')} "
-                      f"(综合 {review.get('overall', 'N/A')})")
-            if md:
-                print(f"  内容预览: {md.split(chr(10))[0]}")
-        else:
-            print(f"  结果: {str(ui_result)[:100]}...")
-    except Exception as e:
-        print(f"  ❌ 测试5异常: {e}")
-        traceback.print_exc()
-
-    print()
-
-    # ---- 测试6：业务规则自动补充 scene_type ----
-    print("【测试6】业务规则 —— 根据 region 自动补充 scene_type")
-    print("-" * 40)
-    raw_input = {"topic": "佛山工业废气治理", "location": "佛山"}
-    processed = engine._apply_business_rules(raw_input)
-    print(f"  输入: {raw_input}")
-    print(f"  输出: scene_type={processed.get('scene_type')}, "
-          f"content_type={processed.get('content_type')}, "
-          f"keywords={processed.get('keywords')}")
-
-    print()
-
-    # ---- 测试总结 ----
-    print("=" * 60)
-    print("  📊 测试总结")
-    print("=" * 60)
-    print(f"  已注册阶段: {engine.list_stages()}")
-    print(f"  定时任务数: {len(scheduler.list_tasks())}")
-    print(f"  执行日志条数: {len(engine.get_execution_log())}")
-    print()
-
-    # 提示：如需启动后台调度器，取消下面的注释
-    # print("  启动后台调度器...")
-    # scheduler.start()
-    # try:
-    #     while True:
-    #         time.sleep(1)
-    # except KeyboardInterrupt:
-    #     scheduler.stop()
-    #     print("\n[系统] 调度器已停止，程序退出")
-
-    print("  ✅ 所有测试完成！系统运行正常。")
+        print(f"\n💡 这是真实错误（非 Mock），请根据报信息安装缺失依赖。")

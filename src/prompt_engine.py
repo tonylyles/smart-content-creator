@@ -23,6 +23,12 @@ SCENE_CONFIG = {
         "style": "技术导向、数据驱动、注重经济效益和合规要求",
         "terms": "废气治理、废水零排放、VOCs治理、危废处置、清洁生产",
     },
+    "industrial_humidity_solution": {
+        "name": "高湿环境除湿解决方案",
+        "audience": "华南地区工业企业EHS负责人、工厂厂长、污泥处理决策者",
+        "style": "痛点驱动、数据佐证、注重节能降本与除湿效率，兼具广府文化亲切感",
+        "terms": "低温除湿干化、回南天、高湿环境、闭式循环、非牛顿流体脱水、涡旋式热泵、含水率",
+    },
 }
 
 # ==================== 内容类型模板 ====================
@@ -125,32 +131,58 @@ class PromptEngine:
 
     def build_prompt(self, topic, context=None, content_type="article",
                      scene_type="municipal", keywords=None,
-                     custom_instructions=None, reference=None):
+                     custom_instructions=None, reference=None,
+                     content_type_hint=None, tone=None, target_audience=None,
+                     content_tone=None):
         """构建完整提示词
 
         Args:
             topic: 文章标题/主题
             context: 上下文信息（兼容旧接口）
             content_type: 内容类型 (article/battle_report/policy_analysis/tech_trend/news_digest)
-            scene_type: 场景类型 (municipal/industrial)
+            scene_type: 场景类型 (municipal/industrial/industrial_humidity_solution)
             keywords: 关键词列表
             custom_instructions: 额外指令
             reference: RAG检索到的参考知识
+            content_type_hint: 业务规则注入的内容类型提示（如 technical_analysis）
+            tone: 业务规则注入的语调（如 professional_and_insightful）
+            target_audience: 业务规则注入的目标受众覆盖
+            content_tone: 内容语气（如 friendly_and_casual 广府亲切感）
 
         Returns:
             dict: {"system_prompt": str, "user_prompt": str}
         """
         scene = SCENE_CONFIG.get(scene_type, SCENE_CONFIG["municipal"])
-        type_info = TYPE_TEMPLATES.get(content_type, TYPE_TEMPLATES["article"])
+
+        # content_type_hint 可以覆盖实际内容类型
+        effective_content_type = content_type
+        if content_type_hint == "technical_analysis":
+            effective_content_type = "tech_trend"  # 映射到技术趋势模板
+        type_info = TYPE_TEMPLATES.get(effective_content_type, TYPE_TEMPLATES["article"])
+
         kw = "、".join(keywords) if keywords else "环保、绿色发展"
+
+        # 构建语调描述
+        tone_desc = ""
+        if tone == "professional_and_insightful":
+            tone_desc = "语调要求：专业严谨且富有洞见，适合B2B决策者周末深度阅读。"
+        if content_tone == "friendly_and_casual":
+            tone_desc += "兼具广府文化的亲切感，适当使用粤语文化元素（如'饮茶'等）拉近距离。"
+
+        # 受众覆盖
+        audience = scene["audience"]
+        if target_audience:
+            audience = f"{audience}、{target_audience}"
 
         # 构建系统提示词
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             scene_name=scene["name"],
-            audience=scene["audience"],
+            audience=audience,
             style=scene["style"],
             terms=scene["terms"],
         )
+        if tone_desc:
+            system_prompt += f"\n{tone_desc}"
 
         # 构建知识参考段落
         context_section = ""
