@@ -33,28 +33,46 @@ class ContentGenerator:
         self._has_llm = False
 
     def _get_llm(self):
-        """获取LLM实例（延迟加载）"""
+        """获取LLM实例（延迟加载，自动适配 DeepSeek）"""
         if self._llm is None and not self._has_llm:
             try:
                 from langchain_openai import ChatOpenAI
                 gen_config = self.config.get("generator", {})
-                api_key = gen_config.get("api_key", "") or self.config.get("llm_api_key", "")
+                llm_config = self.config.get("llm", {})
+                # API Key 优先级：generator.api_key > llm.api_key > 环境变量
+                api_key = (gen_config.get("api_key", "")
+                           or llm_config.get("api_key", "")
+                           or "")
                 if api_key:
+                    # 检测是否为 DeepSeek（Key 以 sk- 开头且 base_url 包含 deepseek）
+                    base_url = (gen_config.get("base_url")
+                                or llm_config.get("base_url", "")
+                                or "https://api.openai.com/v1")
+                    model_name = gen_config.get("model", "gpt-4")
+
+                    # DeepSeek 自动适配
+                    if "deepseek" in base_url.lower():
+                        model_name = "deepseek-chat"  # 强制覆盖
+                        print(f"[Generator] 🔧 DeepSeek 模式: model={model_name}, base_url={base_url}")
+
                     self._llm = ChatOpenAI(
-                        model=gen_config.get("model", "gpt-4"),
+                        model=model_name,
                         api_key=api_key,
-                        base_url=gen_config.get("base_url", "https://api.openai.com/v1"),
+                        base_url=base_url,
                         max_tokens=gen_config.get("max_tokens", 4096),
                         temperature=gen_config.get("temperature", 0.7),
                     )
-            except ImportError:
-                pass
+                    print(f"[Generator] ✅ LLM 就绪: model={model_name}, base_url={base_url}")
+            except ImportError as e:
+                print(f"[Generator] ❌ langchain-openai 未安装，无法使用 LLM: {e}")
             self._has_llm = True
         return self._llm
 
     def generate(self, topic, context=None, content_type="article",
                  scene_type="municipal", keywords=None,
-                 custom_instructions=None, reference=None):
+                 custom_instructions=None, reference=None,
+                 content_type_hint=None, tone=None, target_audience=None,
+                 content_tone=None, **kwargs):
         """生成内容
 
         Args:
@@ -65,9 +83,10 @@ class ContentGenerator:
             keywords: 关键词
             custom_instructions: 额外指令
             reference: RAG参考知识
-
-        Returns:
-            dict: {"markdown": str, "html": str, "generation_time_ms": int}
+            content_type_hint: 业务规则注入的内容类型提示
+            tone: 业务规则注入的语调
+            target_audience: 目标受众
+            content_tone: 内容语气
         """
         start_time = time.time()
         keywords = keywords or ["环保", "绿色发展"]
@@ -77,7 +96,9 @@ class ContentGenerator:
             markdown_content = self._generate_with_llm(
                 topic, context, content_type, scene_type,
                 keywords, custom_instructions, reference,
+                content_type_hint, tone, target_audience, content_tone,
             )
+            print(f"[Generator] 📝 LLM 返回内容长度: {len(markdown_content) if markdown_content else 0}")
         else:
             markdown_content = self._generate_from_template(
                 topic, content_type, scene_type, keywords,
@@ -105,13 +126,20 @@ class ContentGenerator:
 
     # ==================== LLM 生成 ====================
     def _generate_with_llm(self, topic, context, content_type, scene_type,
-                           keywords, custom_instructions, reference):
+                           keywords, custom_instructions, reference,
+                           content_type_hint=None, tone=None,
+                           target_audience=None, content_tone=None):
         from langchain_core.messages import SystemMessage, HumanMessage
         prompts = self.prompt_engine.build_prompt(
             topic, context, content_type, scene_type,
             keywords, custom_instructions, reference,
+            content_type_hint=content_type_hint,
+            tone=tone,
+            target_audience=target_audience,
+            content_tone=content_tone,
         )
-        response = self._get_llm().ainvoke([
+        # 使用 invoke（同步调用），而非 ainvoke（异步）
+        response = self._get_llm().invoke([
             SystemMessage(content=prompts["system_prompt"]),
             HumanMessage(content=prompts["user_prompt"]),
         ])

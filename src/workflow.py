@@ -342,34 +342,91 @@ class WorkflowEngine:
         return result
 
     def _apply_business_rules(self, data: dict) -> dict:
-        """应用业务规则，自动补充缺失参数"""
-        result = data.copy()
+        """业务规则处理器（吉康环境·工业B2B定制版）
+
+        结合赛题要求与真实时空环境，将"地点+时间"转化为精准的"营销策略"。
+        让系统具备工业级的时空感知能力。
+        """
+        from datetime import datetime as dt
+
+        # 获取当前输入参数
+        current_date = data.get("current_date", "2026-05-08")
+        location = data.get("location", data.get("region", "")) or "广州"
+        current_day = data.get("current_day", "")
+
+        # --- 基础字段兜底 ---
         data_schema = self.config.get("data_schema", {})
         region_map = data_schema.get("region_to_scene", {})
         default_region = data_schema.get("default_region", "广州")
 
-        # region → scene_type
-        region = result.get("region") or result.get("location") or default_region
-        if region in region_map:
-            if "scene_type" not in result:
-                result["scene_type"] = region_map[region]
-                print(f"[业务规则] region='{region}' → scene_type='{region_map[region]}'")
-        elif "scene_type" not in result:
-            result["scene_type"] = "municipal"
+        # region → scene_type（优先使用已有的映射）
+        if location in region_map and "scene_type" not in data:
+            data["scene_type"] = region_map[location]
+        elif "scene_type" not in data:
+            data["scene_type"] = "municipal"
 
-        # 默认 content_type
-        if "content_type" not in result:
-            result["content_type"] = "article"
+        if "content_type" not in data:
+            data["content_type"] = "article"
 
-        # 默认 keywords
-        if "keywords" not in result and "topic" in result:
-            result["keywords"] = ["环保", "绿色发展"]
+        if "keywords" not in data:
+            data["keywords"] = ["环保", "绿色发展"]
 
         # topic → query 映射（RAG 需要 query）
-        if "query" not in result and "topic" in result:
-            result["query"] = result["topic"]
+        if "query" not in data and "topic" in data:
+            data["query"] = data["topic"]
 
-        return result
+        # --- 1. 地理环境策略（广州 -> 湿度痛点 -> 强推除湿技术）---
+        # 逻辑：广州/广东地区在5月正值"龙舟水"或"回南天"高发期，湿度极大
+        # 对应赛题：高端装备制造 -> 解决高湿环境下的污泥干化难题
+        is_south_china = any(kw in location for kw in ["广州", "广东", "深圳", "佛山", "东莞", "珠海", "惠州", "中山", "大湾区"])
+        if is_south_china:
+            # 扩展关键词列表，覆盖环境、痛点和技术方向
+            humidity_keywords = ["回南天", "高湿环境", "除湿痛点", "工业干燥", "闭式循环"]
+            for kw in humidity_keywords:
+                if kw not in data["keywords"]:
+                    data["keywords"].append(kw)
+            # 强制设定行业场景，让AI知道现在是针对"高湿解决方案"写作
+            data["scene_type"] = "industrial_humidity_solution"
+            print(f"[业务规则] 🌊 检测到地点: {location}，触发【高湿环境除湿】营销策略")
+
+        # --- 2. 时间策略（5月8日 周五 -> 决策者阅读习惯）---
+        # 逻辑：B2B客户（厂长/工程师）习惯在周五下午或周末阅读深度技术干货
+        # 对应赛题：企业公众号智能创作 -> 兼顾品牌调性与内容多样性
+        try:
+            # 优先用 current_date 解析，其次用 current_day
+            date_obj = dt.strptime(current_date, "%Y-%m-%d")
+            weekday = date_obj.weekday()  # 0=周一, 4=周五
+        except (ValueError, TypeError):
+            # 从 current_day 字段推断
+            friday_keywords = ["Friday", "friday", "5", "周五"]
+            weekday = 4 if any(k in str(current_day) for k in friday_keywords) else -1
+
+        if weekday == 4:  # 周五
+            data["content_type_hint"] = "technical_analysis"
+            data["tone"] = "professional_and_insightful"
+            # 广府文化亲切感
+            data["content_tone"] = "friendly_and_casual"
+            auto_kw = ["大湾区", "饮茶", "周末好去处"]
+            for kw in auto_kw:
+                if kw not in data["keywords"]:
+                    data["keywords"].append(kw)
+            data["auto_keywords"] = auto_kw
+            date_display = current_date if current_date != "2026-05-08" else f"{current_date} (周五)"
+            print(f"[业务规则] 📅 检测到时间: {date_display}，触发【技术干货/政策解读】内容模式")
+
+        # --- 3. 赛题合规性兜底（确保输出字段完整）---
+        required_fields = {
+            "content_type": "article",
+            "keywords": ["环保", "绿色发展"],
+            "target_audience": "企业EHS负责人、工厂管理层、市政决策者",
+        }
+        for field, default in required_fields.items():
+            if field not in data:
+                # 从全局配置中读取默认值
+                gen_config = self.config.get("generator", {})
+                data[field] = gen_config.get(f"default_{field}", default)
+
+        return data
 
     def _is_empty_result(self, result: Any) -> bool:
         if result is None:
