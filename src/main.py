@@ -197,12 +197,36 @@ try:
     EvaluatorClass = Evaluator
     print("[启动] ✅ 导入 Evaluator（凯睿）")
 except ImportError as e:
+    if _FORCE_REAL:
+        print(f"[启动] ❌ Evaluator 导入失败（防 Mock 模式，直接报错）: {e}")
+        raise
     print(f"[启动] ⚠️ 导入 Evaluator 失败: {e}，创建虚拟类")
     class EvaluatorClass:
         def __init__(self, config=None, prompt_engine=None):
             pass
         def evaluate(self, content, title="", scene_type="municipal"):
             return {"accuracy_score": 0.7, "compliance_score": 0.8, "readability_score": 0.75, "brand_alignment_score": 0.7, "overall": 0.74, "result": "needs_revision", "comments": "Mock"}
+
+# 7. WeChatPublisher（微信公众号发布 - 曾睿）
+try:
+    from src.publisher import WeChatPublisher
+    WeChatPublisherClass = WeChatPublisher
+    print("[启动] ✅ 导入 WeChatPublisher（曾睿）")
+except ImportError as e:
+    if _FORCE_REAL:
+        print(f"[启动] ❌ WeChatPublisher 导入失败（防 Mock 模式，直接报错）: {e}")
+        raise
+    print(f"[启动] ⚠️ 导入 WeChatPublisher 失败: {e}，创建虚拟类")
+    class WeChatPublisherClass:
+        def __init__(self, config=None):
+            self.config = config or {}
+        def publish_article(self, title, content_html, **kwargs):
+            print(f"  [Mock Publisher] 模拟发布: {title}")
+            return {"status": "success", "media_id": "mock", "publish_id": "mock"}
+        def get_publish_stats(self):
+            return {"total": 0, "success": 0, "accuracy": 0, "accuracy_pass": False}
+        def get_mode(self):
+            return "mock"
 
 
 # ==================== 导入本方模块 ====================
@@ -293,6 +317,15 @@ def init_system():
         traceback.print_exc()
         evaluator = None
 
+    # 7. 创建 WeChatPublisher（曾睿）
+    try:
+        publisher = WeChatPublisherClass(config=config)
+        print(f"[初始化] ✅ WeChatPublisher 实例化完成（模式: {publisher.get_mode()}）")
+    except Exception as e:
+        print(f"[初始化] ❌ WeChatPublisher 实例化失败: {e}")
+        traceback.print_exc()
+        publisher = None
+
     # ==================== 5. 实例化 WorkflowEngine 并注册阶段 ====================
     engine = WorkflowEngine(config=config)
 
@@ -322,6 +355,14 @@ def init_system():
         engine.register_stage("evaluate", evaluator.evaluate)
     else:
         print("[初始化] ⚠️ 评估模块不可用，跳过 evaluate 注册")
+
+    # ==================== 注册发布模块（曾睿）====================
+    if publisher is not None:
+        # 注册一键发布为 "publish_article" 阶段
+        engine.register_stage("publish_article", publisher.publish_article)
+        print(f"[初始化] ✅ WeChatPublisher 已注册为 'publish_article' 阶段（{publisher.get_mode()}模式）")
+    else:
+        print("[初始化] ⚠️ 发布模块不可用，跳过 publish_article 注册")
 
     # ==================== 注册阶段间数据转换器 ====================
     # RAG 检索结果 → 生成器的 reference 参数
@@ -372,6 +413,7 @@ def init_system():
         "knowledge_base": knowledge_base,
         "data_storage": data_storage,
         "evaluator": evaluator,
+        "publisher": publisher,
     }
 
     print("\n" + "=" * 60)
@@ -468,3 +510,74 @@ if __name__ == "__main__":
         print(f"\n💥 测试异常: {e}")
         traceback.print_exc()
         print(f"\n💡 这是真实错误（非 Mock），请根据报信息安装缺失依赖。")
+
+    # ---- 发布测试 ----
+    print(f"\n{'=' * 60}")
+    print("  📱 微信公众号发布测试")
+    print("=" * 60)
+
+    publisher = components.get("publisher")
+    if publisher:
+        print(f"\n当前模式: {publisher.get_mode()}")
+
+        # 从流水线结果中提取生成内容进行发布
+        if pipeline_result["status"] == "success":
+            stages_done = pipeline_result.get("stages_completed", {})
+            gen_data = stages_done.get("generate_article", {}).get("data", {})
+            html_content = gen_data.get("html", "")
+            article_title = gen_data.get("markdown", "").split("\n")[0].lstrip("# ").strip() or test_input["topic"]
+
+            if html_content:
+                print(f"\n准备发布文章: 「{article_title}」")
+                pub_result = publisher.publish_article(
+                    title=article_title,
+                    content_html=html_content,
+                    author="吉康环境",
+                    digest="AuraScribe AI 智能生成",
+                )
+                print(f"\n发布结果: {pub_result['status']}")
+                if pub_result["status"] in ("success", "scheduled"):
+                    print(f"  media_id: {pub_result.get('media_id', 'N/A')}")
+                    if "publish_id" in pub_result:
+                        print(f"  publish_id: {pub_result['publish_id']}")
+
+        # 发布统计
+        stats = publisher.get_publish_stats()
+        print(f"\n📊 发布统计:")
+        print(f"  总计: {stats['total']} 次")
+        print(f"  成功: {stats['success']} 次")
+        print(f"  准确率: {stats['accuracy']}% {'✅ 达标(≥98%)' if stats['accuracy_pass'] else '⚠️ 未达标'}")
+    else:
+        print("\n⚠️ 发布模块未初始化，跳过发布测试")
+
+    # ---- 自动发现话题演示 ----
+    print(f"\n{'=' * 60}")
+    print("  🔍 自动话题发现演示")
+    print("=" * 60)
+    try:
+        from src.spiders.eco_crawler import EcoNewsCrawler
+        eco_crawler = EcoNewsCrawler()
+        topics = eco_crawler.auto_discover_topics(count=3)
+        print(f"\n🎯 发现 {len(topics)} 个可创作话题:")
+        for i, t in enumerate(topics, 1):
+            print(f"  {i}. {t['title']}")
+            print(f"     关键词: {', '.join(t.get('keywords', []))}")
+    except Exception as e:
+        print(f"⚠️ 自动发现话题失败: {e}")
+        print("💡 需要网络连接或安装 beautifulsoup4")
+
+    # ---- 定时推送演示 ----
+    print(f"\n{'=' * 60}")
+    print("  ⏰ 定时推送功能")
+    print("=" * 60)
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        print("✅ APScheduler 已安装，支持精准定时调度")
+        print(f"   当前已注册定时任务: {len(scheduler.list_tasks())} 个")
+        for t in scheduler.list_tasks():
+            print(f"   - {t}")
+        print("\n💡 使用示例:")
+        print("   scheduler.add_daily_task('早间推文', auto_generate_and_publish, hour=9, minute=0)")
+        print("   scheduler.add_daily_task('午间资讯', auto_generate_and_publish, hour=12, minute=30)")
+    except ImportError:
+        print("⚠️ APScheduler 未安装，仅支持简单轮询调度")

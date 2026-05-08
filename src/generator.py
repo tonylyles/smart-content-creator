@@ -105,7 +105,7 @@ class ContentGenerator:
                 custom_instructions, reference,
             )
 
-        html_content = self._markdown_to_html(markdown_content)
+        html_content = self._markdown_to_wechat_html(markdown_content)
         generation_time = int((time.time() - start_time) * 1000)
 
         return {
@@ -435,7 +435,6 @@ class ContentGenerator:
             import markdown as md
             html = md.markdown(markdown_text, extensions=["extra", "tables", "toc"])
         except ImportError:
-            # 简单回退
             html = markdown_text.replace("\n", "<br>")
         return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -446,3 +445,103 @@ h1{{color:#1a5c2a;border-bottom:3px solid #2d8c4e;padding-bottom:8px}}h2{{color:
 blockquote{{border-left:4px solid #2d8c4e;padding:8px 16px;color:#666;background:#f5faf5;border-radius:0 4px 4px 0}}
 table{{border-collapse:collapse;width:100%;margin:12px 0}}th{{background:#e8f5e9;color:#1a5c2a}}th,td{{border:1px solid #c8e6c9;padding:8px 14px}}pre{{background:#1a2a1a;color:#e0e0e0;padding:16px;border-radius:6px;overflow-x:auto}}code{{background:#f0f5f0;padding:2px 6px;border-radius:3px}}
 </style></head><body>{html}</body></html>"""
+
+    def _markdown_to_wechat_html(self, markdown_text: str) -> str:
+        """将 Markdown 转换为微信公众号兼容的 HTML（内联样式）
+
+        微信公众号会过滤 <style> 和 class，只保留内联 style。
+        此方法生成带内联样式的 HTML，可直接粘贴到公众号编辑器。
+        """
+        try:
+            import markdown as md
+            html = md.markdown(markdown_text, extensions=["extra", "tables", "toc"])
+        except ImportError:
+            html = markdown_text.replace("\n", "<br>")
+
+        # 后处理：将 HTML 标签替换为带内联样式的版本
+        import re
+
+        # h1
+        html = re.sub(
+            r'<h1>(.*?)</h1>',
+            r'<h1 style="font-size:22px;color:#1a5c2a;border-bottom:3px solid #2d8c4e;padding-bottom:8px;margin:24px 0 16px;">\1</h1>',
+            html
+        )
+        # h2
+        html = re.sub(
+            r'<h2>(.*?)</h2>',
+            r'<h2 style="font-size:19px;color:#2d8c4e;margin:20px 0 12px;padding-left:10px;border-left:4px solid #2d8c4e;">\1</h2>',
+            html
+        )
+        # h3
+        html = re.sub(
+            r'<h3>(.*?)</h3>',
+            r'<h3 style="font-size:17px;color:#3a7d3a;margin:16px 0 8px;">\1</h3>',
+            html
+        )
+        # p
+        html = re.sub(
+            r'<p>(.*?)</p>',
+            r'<p style="font-size:16px;line-height:1.8;color:#333;margin:10px 0;text-align:justify;">\1</p>',
+            html
+        )
+        # blockquote
+        html = re.sub(
+            r'<blockquote>(.*?)</blockquote>',
+            r'<blockquote style="border-left:4px solid #2d8c4e;padding:10px 16px;color:#666;background:#f5faf5;border-radius:0 4px 4px 0;margin:12px 0;">\1</blockquote>',
+            html, flags=re.DOTALL
+        )
+        # strong
+        html = re.sub(
+            r'<strong>(.*?)</strong>',
+            r'<strong style="color:#1a5c2a;">\1</strong>',
+            html
+        )
+        # table
+        html = re.sub(
+            r'<table>',
+            r'<table style="border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;">',
+            html
+        )
+        html = re.sub(
+            r'<th>',
+            r'<th style="background:#e8f5e9;color:#1a5c2a;border:1px solid #c8e6c9;padding:8px 14px;">',
+            html
+        )
+        html = re.sub(
+            r'<td>',
+            r'<td style="border:1px solid #c8e6c9;padding:8px 14px;">',
+            html
+        )
+        # ul/ol
+        html = re.sub(
+            r'<li>',
+            r'<li style="font-size:16px;line-height:1.8;color:#333;margin:4px 0;">',
+            html
+        )
+        # code
+        html = re.sub(
+            r'<code>(.*?)</code>',
+            r'<code style="background:#f0f5f0;padding:2px 6px;border-radius:3px;font-size:14px;color:#2d8c4e;">\1</code>',
+            html
+        )
+        # pre
+        html = re.sub(
+            r'<pre>',
+            r'<pre style="background:#1a2a1a;color:#e0e0e0;padding:16px;border-radius:6px;overflow-x:auto;font-size:13px;line-height:1.6;">',
+            html
+        )
+        # hr
+        html = re.sub(
+            r'<hr\s*/?>',
+            r'<hr style="border:none;border-top:1px solid #c8e6c9;margin:20px 0;"/>',
+            html
+        )
+
+        # 包裹在最外层 section 中
+        wechat_html = f"""<section style="padding:16px;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;max-width:677px;margin:0 auto;">
+{html}
+<p style="font-size:13px;color:#999;text-align:center;margin-top:24px;">吉康环境 —— 让绿色成为生产力</p>
+</section>"""
+
+        return wechat_html
