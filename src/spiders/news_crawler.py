@@ -11,30 +11,38 @@ import random
 class NewsCrawler:
     """新闻爬虫"""
     
-    # 新闻来源配置
+    # 新闻来源配置 - 专注于低温除湿干化领域
+    # 优先级说明：列表顺序即为爬取优先级，越靠前优先级越高
     SOURCES = {
-        "tech": {
-            "name": "科技资讯",
+        "priority": {
+            "name": "核心目标网站",
             "urls": [
-                {"url": "https://www.techweb.com.cn/", "parser": "techweb"},
-                {"url": "https://tech.sina.com.cn/", "parser": "sina_tech"},
-                {"url": "https://www.ithome.com/", "parser": "ithome"}
-            ]
-        },
-        "policy": {
-            "name": "政策动态",
-            "urls": [
-                {"url": "http://www.gov.cn/", "parser": "gov"},
-                {"url": "https://www.miit.gov.cn/", "parser": "miit"},
-                {"url": "https://www.cac.gov.cn/", "parser": "cac"}
+                {"url": "https://gdjikang.com/", "parser": "jikang", "priority": 1}  # 最高优先级
             ]
         },
         "industry": {
             "name": "行业资讯",
             "urls": [
-                {"url": "https://www.36kr.com/", "parser": "36kr"},
-                {"url": "https://www.pinggu.org/", "parser": "pinggu"},
-                {"url": "https://www.jrj.com.cn/", "parser": "jrj"}
+                {"url": "https://www.hbzhan.com/", "parser": "hbzhan"},          # 环保在线
+                {"url": "https://www.china-water.com.cn/", "parser": "chinawater"},  # 中国水网
+                {"url": "https://huanbao.bjx.com.cn/", "parser": "bjx_huanbao"},  # 北极星环保网
+                {"url": "https://www.cn-em.com/", "parser": "cnem"},            # 中国环境网
+                {"url": "https://www.ehwater.com/", "parser": "ehwater"}        # 中国环保设备网
+            ]
+        },
+        "policy": {
+            "name": "政策动态",
+            "urls": [
+                {"url": "http://www.mee.gov.cn/", "parser": "mee"},              # 生态环境部
+                {"url": "http://www.gov.cn/", "parser": "gov"},                  # 中国政府网
+                {"url": "https://www.mepc.gov.cn/", "parser": "mepc"}            # 广东省生态环境厅
+            ]
+        },
+        "tech": {
+            "name": "技术资讯",
+            "urls": [
+                {"url": "https://www.cnhubei.com/", "parser": "cnhubei"},        # 湖北日报（环保科技）
+                {"url": "https://tech.sina.com.cn/", "parser": "sina_tech"}      # 新浪科技
             ]
         }
     }
@@ -227,6 +235,15 @@ class NewsCrawler:
     def _get_parser(self, parser_name: str):
         """获取解析器函数"""
         parsers = {
+            "jikang": self._parse_jikang,            # 广东吉康环境
+            "hbzhan": self._parse_hbzhan,            # 环保在线
+            "chinawater": self._parse_chinawater,     # 中国水网
+            "bjx_huanbao": self._parse_bjx_huanbao,   # 北极星环保网
+            "cnem": self._parse_cnem,                # 中国环境网
+            "ehwater": self._parse_ehwater,          # 中国环保设备网
+            "mee": self._parse_mee,                  # 生态环境部
+            "mepc": self._parse_mepc,                # 广东省生态环境厅
+            "cnhubei": self._parse_cnhubei,          # 湖北日报
             "techweb": self._parse_techweb,
             "sina_tech": self._parse_sina_tech,
             "ithome": self._parse_ithome,
@@ -237,7 +254,96 @@ class NewsCrawler:
             "pinggu": self._parse_pinggu,
             "jrj": self._parse_jrj
         }
-        return parsers.get(parser_name, lambda html: [])
+        return parsers.get(parser_name, self._parse_generic)
+
+    def _parse_jikang(self, html: str) -> List[Dict[str, Any]]:
+        """解析广东吉康环境官网 - 低温除湿干化核心网站"""
+        return self._parse_generic(html, "吉康环境", "priority")
+
+    def _parse_hbzhan(self, html: str) -> List[Dict[str, Any]]:
+        """解析环保在线"""
+        return self._parse_generic(html, "环保在线", "industry")
+
+    def _parse_chinawater(self, html: str) -> List[Dict[str, Any]]:
+        """解析中国水网"""
+        return self._parse_generic(html, "中国水网", "industry")
+
+    def _parse_bjx_huanbao(self, html: str) -> List[Dict[str, Any]]:
+        """解析北极星环保网"""
+        return self._parse_generic(html, "北极星环保网", "industry")
+
+    def _parse_cnem(self, html: str) -> List[Dict[str, Any]]:
+        """解析中国环境网"""
+        return self._parse_generic(html, "中国环境网", "industry")
+
+    def _parse_ehwater(self, html: str) -> List[Dict[str, Any]]:
+        """解析中国环保设备网"""
+        return self._parse_generic(html, "中国环保设备网", "industry")
+
+    def _parse_mee(self, html: str) -> List[Dict[str, Any]]:
+        """解析生态环境部"""
+        return self._parse_generic(html, "生态环境部", "policy")
+
+    def _parse_mepc(self, html: str) -> List[Dict[str, Any]]:
+        """解析广东省生态环境厅"""
+        return self._parse_generic(html, "广东省生态环境厅", "policy")
+
+    def _parse_cnhubei(self, html: str) -> List[Dict[str, Any]]:
+        """解析湖北日报"""
+        return self._parse_generic(html, "湖北日报", "tech")
+
+    def _parse_generic(self, html: str, source_name: str, category: str) -> List[Dict[str, Any]]:
+        """通用解析器 - 尝试多种常见HTML结构"""
+        results = []
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            
+            # 尝试多种常见的标题选择器
+            selectors = [
+                ("h1 a", {}),
+                ("h2 a", {}),
+                ("h3 a", {}),
+                ("article a", {}),
+                ("div.news a", {}),
+                ("div.list a", {}),
+                ("ul li a", {}),
+                ("div.content a", {}),
+                ("a.title", {}),
+                ("a[title]", {})
+            ]
+            
+            for selector, attrs in selectors:
+                items = soup.select(selector)
+                for item in items[:10]:  # 每个选择器最多取10条
+                    title = item.get_text(strip=True) if item else ""
+                    url = item.get("href", "") if item else ""
+                    
+                    if title and url:
+                        # 处理相对URL
+                        if not url.startswith("http"):
+                            url = "#"
+                        
+                        results.append({
+                            "title": title,
+                            "url": url,
+                            "source": source_name,
+                            "category": category
+                        })
+            
+            # 去重
+            seen = set()
+            unique_results = []
+            for item in results:
+                key = (item["title"], item["url"])
+                if key not in seen:
+                    seen.add(key)
+                    unique_results.append(item)
+            
+            return unique_results[:15]  # 最多返回15条
+            
+        except Exception as e:
+            print(f"{source_name}解析错误: {e}")
+            return []
     
     def crawl_source(self, source_config: Dict[str, Any]) -> List[Dict[str, Any]]:
         """爬取单个来源"""
