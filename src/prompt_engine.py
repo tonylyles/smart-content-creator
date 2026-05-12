@@ -6,8 +6,9 @@
 - 动态变量注入
 - 品牌调性约束
 - LLM/模板双模式支持
+- 时间节点感知（支持里程碑注入）
+- 用户偏好集成
 """
-
 
 # ==================== 场景配置 ====================
 SCENE_CONFIG = {
@@ -68,6 +69,8 @@ USER_PROMPT_TEMPLATE = """请撰写一篇{type_label}，标题为：{title}
 - 字数：{word_count}
 - 必须体现吉康环境的技术实力和行业地位
 
+{timeline_section}
+
 {context_section}
 
 {custom_section}
@@ -84,9 +87,20 @@ CUSTOM_TEMPLATE = """
 {instructions}
 """
 
+TIMELINE_TEMPLATE = """
+## 时间节点规划
+{timeline_content}
+"""
+
+REVISION_TEMPLATE = """
+## 修改要求
+请根据以下评审意见对原文进行修改：
+{revision_instructions}
+"""
+
 
 class PromptEngine:
-    """提示词管理与模板引擎
+    """提示词管理与模板引擎.
 
     支持：
     - 多场景切换（市政/工业）
@@ -94,16 +108,35 @@ class PromptEngine:
     - 动态变量注入
     - RAG知识注入
     - 品牌调性约束
+    - 时间节点感知
+    - 用户偏好集成
+    - 修改指令构建
+
+    Attributes:
+        config: 全局配置字典.
+        templates: 已注册的模板字典.
+        user_preferences: 用户偏好设置.
     """
 
     def __init__(self, config=None):
+        """初始化提示词引擎.
+
+        Args:
+            config: 全局配置字典，默认为空字典.
+        """
         self.config = config or {}
         self.templates = {}
-        # 注册默认模板
+        self.user_preferences = {
+            "default_scene": "municipal",
+            "default_content_type": "article",
+            "default_word_count": "800-1500字",
+            "tone": "professional",
+            "auto_brand_injection": True,
+        }
         self._register_defaults()
 
     def _register_defaults(self):
-        """注册内置提示词模板"""
+        """注册内置提示词模板."""
         for type_key, type_info in TYPE_TEMPLATES.items():
             self.register_template(
                 type_key,
@@ -115,34 +148,73 @@ class PromptEngine:
             )
 
     def register_template(self, name, template):
-        """注册提示词模板
+        """注册提示词模板.
 
         Args:
-            name: 模板名称
-            template: 模板配置字典
+            name: 模板名称.
+            template: 模板配置字典.
         """
         self.templates[name] = template
 
-    def build_prompt(self, topic, context=None, content_type="article",
-                     scene_type="municipal", keywords=None,
-                     custom_instructions=None, reference=None):
-        """构建完整提示词
+    def update_user_preferences(self, preferences):
+        """更新用户偏好设置.
 
         Args:
-            topic: 文章标题/主题
-            context: 上下文信息（兼容旧接口）
-            content_type: 内容类型 (article/battle_report/policy_analysis/tech_trend/news_digest)
-            scene_type: 场景类型 (municipal/industrial)
-            keywords: 关键词列表
-            custom_instructions: 额外指令
-            reference: RAG检索到的参考知识
+            preferences: 用户偏好字典，支持以下键：
+                - default_scene: 默认场景 (municipal/industrial)
+                - default_content_type: 默认内容类型
+                - default_word_count: 默认字数范围
+                - tone: 写作语调 (professional/casual/technical)
+                - auto_brand_injection: 是否自动注入品牌元素
+        """
+        self.user_preferences.update(preferences)
+
+    def get_user_preferences(self):
+        """获取当前用户偏好.
 
         Returns:
-            dict: {"system_prompt": str, "user_prompt": str}
+            dict: 用户偏好设置字典.
         """
+        return self.user_preferences.copy()
+
+    def build_prompt(self, topic, context=None, content_type="article",
+                     scene_type="municipal", keywords=None,
+                     custom_instructions=None, reference=None,
+                     timeline=None):
+        """构建完整提示词.
+
+        Args:
+            topic: 文章标题/主题.
+            context: 上下文信息（兼容旧接口）.
+            content_type: 内容类型，可选值：
+                article/battle_report/policy_analysis/tech_trend/news_digest.
+            scene_type: 场景类型，可选值：municipal/industrial.
+            keywords: 关键词列表.
+            custom_instructions: 额外指令.
+            reference: RAG检索到的参考知识.
+            timeline: 时间节点列表，格式为 [{"phase": str, "deadline": str}].
+
+        Returns:
+            dict: {"system_prompt": str, "user_prompt": str,
+                   "scene": dict, "type_info": dict}
+        """
+        # 应用用户偏好覆盖默认值
+        if content_type == "article" and self.user_preferences.get("default_content_type"):
+            content_type = self.user_preferences["default_content_type"]
+        if scene_type == "municipal" and self.user_preferences.get("default_scene"):
+            scene_type = self.user_preferences["default_scene"]
+
         scene = SCENE_CONFIG.get(scene_type, SCENE_CONFIG["municipal"])
         type_info = TYPE_TEMPLATES.get(content_type, TYPE_TEMPLATES["article"])
         kw = "、".join(keywords) if keywords else "环保、绿色发展"
+
+        # 根据用户偏好调整语调
+        tone = self.user_preferences.get("tone", "professional")
+        tone_instruction = ""
+        if tone == "casual":
+            tone_instruction = "语言风格偏向轻松易读，减少专业术语堆砌。"
+        elif tone == "technical":
+            tone_instruction = "语言风格偏向技术深度，多使用专业术语和数据支撑。"
 
         # 构建系统提示词
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
@@ -151,6 +223,22 @@ class PromptEngine:
             style=scene["style"],
             terms=scene["terms"],
         )
+        if tone_instruction:
+            system_prompt += f"\n额外语调要求：{tone_instruction}"
+
+        # 构建时间节点段落
+        timeline_section = ""
+        if timeline:
+            timeline_items = []
+            for item in timeline:
+                phase = item.get("phase", "")
+                deadline = item.get("deadline", "")
+                if phase:
+                    timeline_items.append(f"- **{phase}**：{deadline}")
+            if timeline_items:
+                timeline_section = TIMELINE_TEMPLATE.format(
+                    timeline_content="\n".join(timeline_items)
+                )
 
         # 构建知识参考段落
         context_section = ""
@@ -164,8 +252,14 @@ class PromptEngine:
         if custom_instructions:
             custom_section = CUSTOM_TEMPLATE.format(instructions=custom_instructions)
 
+        # 品牌自动注入
+        brand_reminder = ""
+        if self.user_preferences.get("auto_brand_injection", True):
+            brand_reminder = "务必在文中自然融入'吉康环境'品牌元素和技术实力展示。"
+
         # 字数范围
-        word_count = self.config.get("generator", {}).get("word_count", "800-1500字")
+        word_count = (self.user_preferences.get("default_word_count")
+                      or self.config.get("generator", {}).get("word_count", "800-1500字"))
 
         # 构建用户提示词
         user_prompt = USER_PROMPT_TEMPLATE.format(
@@ -174,9 +268,12 @@ class PromptEngine:
             scene_name=scene["name"],
             keywords=kw,
             word_count=word_count,
+            timeline_section=timeline_section,
             context_section=context_section,
             custom_section=custom_section,
         )
+        if brand_reminder:
+            user_prompt += f"\n{brand_reminder}"
 
         return {
             "system_prompt": system_prompt,
@@ -186,12 +283,12 @@ class PromptEngine:
         }
 
     def build_review_prompt(self, title, content, scene_type="municipal"):
-        """构建审核提示词
+        """构建审核提示词.
 
         Args:
-            title: 文章标题
-            content: 文章内容
-            scene_type: 场景类型
+            title: 文章标题.
+            content: 文章内容.
+            scene_type: 场景类型.
 
         Returns:
             dict: {"system_prompt": str, "user_prompt": str}
@@ -204,11 +301,12 @@ class PromptEngine:
 2. 合规性 (0-1)：是否符合广告法和环保政策
 3. 可读性 (0-1)：文章结构是否清晰
 4. 品牌调性匹配度 (0-1)：是否符合吉康环境品牌形象
+5. 专业性 (0-1)：专业术语密度与使用是否恰当
 
-判定规则：四项均≥0.8→pass，任一项<0.6→fail，其他→needs_revision
+判定规则：五项均≥0.8→pass，任一项<0.6→fail，其他→needs_revision
 
 严格按JSON格式输出：
-{{"accuracy_score":0.0-1.0,"compliance_score":0.0-1.0,"readability_score":0.0-1.0,"brand_alignment_score":0.0-1.0,"comments":"评审意见","result":"pass/needs_revision/fail"}}"""
+{{"accuracy_score":0.0-1.0,"compliance_score":0.0-1.0,"readability_score":0.0-1.0,"brand_alignment_score":0.0-1.0,"professionalism_score":0.0-1.0,"comments":"评审意见","suggestions":["修改建议1","修改建议2"],"result":"pass/needs_revision/fail"}}"""
 
         user_prompt = f"""请评审以下{scene['name']}内容：
 
@@ -217,7 +315,56 @@ class PromptEngine:
 内容：
 {content}
 
-输出JSON格式评审结果。"""
+输出JSON格式评审结果，必须包含suggestions字段提供具体修改建议。"""
+
+        return {
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
+        }
+
+    def build_revision_prompt(self, original_title, original_content,
+                              evaluation_result, scene_type="municipal"):
+        """构建修改提示词（基于评估结果生成修改版内容）.
+
+        Args:
+            original_title: 原文标题.
+            original_content: 原文内容.
+            evaluation_result: 评估结果字典，含 scores 和 suggestions.
+            scene_type: 场景类型.
+
+        Returns:
+            dict: {"system_prompt": str, "user_prompt": str}
+        """
+        scene = SCENE_CONFIG.get(scene_type, SCENE_CONFIG["municipal"])
+        suggestions = evaluation_result.get("suggestions", [])
+        suggestion_text = "\n".join(f"- {s}" for s in suggestions) if suggestions else "暂无具体建议"
+
+        low_dims = []
+        for dim in ["accuracy_score", "compliance_score", "readability_score",
+                     "brand_alignment_score", "professionalism_score"]:
+            score = evaluation_result.get(dim, 1.0)
+            if score < 0.8:
+                low_dims.append(f"{dim.replace('_score', '')}({score:.2f})")
+
+        dim_summary = "、".join(low_dims) if low_dims else "无"
+
+        system_prompt = f"""你是吉康环境的内容修改专家，专注于{scene['name']}领域。
+请根据评估意见修改原文，重点提升以下薄弱维度：{dim_summary}。
+修改时保持原文核心信息和结构，仅针对问题点进行优化。"""
+
+        user_prompt = f"""请修改以下文章：
+
+原标题：{original_title}
+
+原文：
+{original_content}
+
+需要提升的维度：{dim_summary}
+
+修改建议：
+{suggestion_text}
+
+请直接输出修改后的Markdown文章，不要包含```markdown标记。"""
 
         return {
             "system_prompt": system_prompt,
@@ -225,17 +372,39 @@ class PromptEngine:
         }
 
     def get_scene_config(self, scene_type="municipal"):
-        """获取场景配置"""
+        """获取场景配置.
+
+        Args:
+            scene_type: 场景类型.
+
+        Returns:
+            dict: 场景配置字典.
+        """
         return SCENE_CONFIG.get(scene_type, SCENE_CONFIG["municipal"])
 
     def get_type_template(self, content_type="article"):
-        """获取内容类型模板信息"""
+        """获取内容类型模板信息.
+
+        Args:
+            content_type: 内容类型.
+
+        Returns:
+            dict: 内容类型模板字典.
+        """
         return TYPE_TEMPLATES.get(content_type, TYPE_TEMPLATES["article"])
 
     def list_templates(self):
-        """列出所有可用模板"""
+        """列出所有可用模板.
+
+        Returns:
+            dict: {模板key: 模板标签} 字典.
+        """
         return {k: v["label"] for k, v in TYPE_TEMPLATES.items()}
 
     def list_scenes(self):
-        """列出所有可用场景"""
+        """列出所有可用场景.
+
+        Returns:
+            dict: {场景key: 场景名称} 字典.
+        """
         return {k: v["name"] for k, v in SCENE_CONFIG.items()}

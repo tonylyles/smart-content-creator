@@ -7,6 +7,8 @@
 - 市政/工业场景切换
 - Markdown/HTML双格式输出
 - 项目战报快捷生成
+- 时间节点感知生成
+- 基于评估建议的重新生成
 """
 import time
 import json
@@ -19,21 +21,35 @@ from src.prompt_engine import PromptEngine, SCENE_CONFIG, TYPE_TEMPLATES
 
 
 class ContentGenerator:
-    """内容生成引擎
+    """内容生成引擎.
 
     双模式架构：
     - 有LLM → 调用大模型生成
     - 无LLM → 模板引擎生成（演示用）
+
+    Attributes:
+        config: 全局配置字典.
+        prompt_engine: 提示词引擎实例.
     """
 
     def __init__(self, config, prompt_engine=None):
+        """初始化内容生成引擎.
+
+        Args:
+            config: 全局配置字典.
+            prompt_engine: 提示词引擎实例，默认自动创建.
+        """
         self.config = config
         self.prompt_engine = prompt_engine or PromptEngine(config)
         self._llm = None
         self._has_llm = False
 
     def _get_llm(self):
-        """获取LLM实例（延迟加载）"""
+        """获取LLM实例（延迟加载）.
+
+        Returns:
+            ChatOpenAI实例或None.
+        """
         if self._llm is None and not self._has_llm:
             try:
                 from langchain_openai import ChatOpenAI
@@ -54,20 +70,24 @@ class ContentGenerator:
 
     def generate(self, topic, context=None, content_type="article",
                  scene_type="municipal", keywords=None,
-                 custom_instructions=None, reference=None):
-        """生成内容
+                 custom_instructions=None, reference=None,
+                 timeline=None):
+        """生成内容.
 
         Args:
-            topic: 文章标题
-            context: 上下文（兼容旧接口）
-            content_type: 内容类型
-            scene_type: 场景类型
-            keywords: 关键词
-            custom_instructions: 额外指令
-            reference: RAG参考知识
+            topic: 文章标题.
+            context: 上下文（兼容旧接口）.
+            content_type: 内容类型，可选值：
+                article/battle_report/policy_analysis/tech_trend/news_digest.
+            scene_type: 场景类型，可选值：municipal/industrial.
+            keywords: 关键词列表.
+            custom_instructions: 额外指令.
+            reference: RAG参考知识.
+            timeline: 时间节点列表，格式为 [{"phase": str, "deadline": str}].
 
         Returns:
-            dict: {"markdown": str, "html": str, "generation_time_ms": int}
+            dict: {"markdown": str, "html": str, "generation_time_ms": int,
+                   "content_type": str, "scene_type": str}
         """
         start_time = time.time()
         keywords = keywords or ["环保", "绿色发展"]
@@ -76,12 +96,12 @@ class ContentGenerator:
         if llm:
             markdown_content = self._generate_with_llm(
                 topic, context, content_type, scene_type,
-                keywords, custom_instructions, reference,
+                keywords, custom_instructions, reference, timeline,
             )
         else:
             markdown_content = self._generate_from_template(
                 topic, content_type, scene_type, keywords,
-                custom_instructions, reference,
+                custom_instructions, reference, timeline,
             )
 
         html_content = self._markdown_to_html(markdown_content)
@@ -95,8 +115,54 @@ class ContentGenerator:
             "scene_type": scene_type,
         }
 
+    def regenerate(self, original_title, original_content,
+                   evaluation_result, scene_type="municipal"):
+        """基于评估结果重新生成内容.
+
+        Args:
+            original_title: 原文标题.
+            original_content: 原文Markdown内容.
+            evaluation_result: 评估结果字典，含 scores 和 suggestions.
+            scene_type: 场景类型.
+
+        Returns:
+            dict: 同 generate() 返回格式.
+        """
+        start_time = time.time()
+
+        llm = self._get_llm()
+        if llm:
+            markdown_content = self._regenerate_with_llm(
+                original_title, original_content,
+                evaluation_result, scene_type,
+            )
+        else:
+            markdown_content = self._regenerate_from_template(
+                original_title, original_content,
+                evaluation_result, scene_type,
+            )
+
+        html_content = self._markdown_to_html(markdown_content)
+        generation_time = int((time.time() - start_time) * 1000)
+
+        return {
+            "markdown": markdown_content,
+            "html": html_content,
+            "generation_time_ms": generation_time,
+            "content_type": "revision",
+            "scene_type": scene_type,
+        }
+
     def generate_batch(self, topics, **kwargs):
-        """批量生成"""
+        """批量生成内容.
+
+        Args:
+            topics: 主题列表.
+            **kwargs: 传递给 generate() 的其他参数.
+
+        Returns:
+            list[dict]: 生成结果列表.
+        """
         results = []
         for topic in topics:
             result = self.generate(topic, **kwargs)
@@ -104,28 +170,96 @@ class ContentGenerator:
         return results
 
     # ==================== LLM 生成 ====================
+
     def _generate_with_llm(self, topic, context, content_type, scene_type,
-                           keywords, custom_instructions, reference):
+                           keywords, custom_instructions, reference, timeline):
+        """使用LLM生成内容.
+
+        Args:
+            topic: 文章标题.
+            context: 上下文信息.
+            content_type: 内容类型.
+            scene_type: 场景类型.
+            keywords: 关键词列表.
+            custom_instructions: 额外指令.
+            reference: RAG参考知识.
+            timeline: 时间节点列表.
+
+        Returns:
+            str: 生成的Markdown内容.
+        """
         from langchain_core.messages import SystemMessage, HumanMessage
         prompts = self.prompt_engine.build_prompt(
             topic, context, content_type, scene_type,
-            keywords, custom_instructions, reference,
+            keywords, custom_instructions, reference, timeline,
         )
-        response = self._get_llm().ainvoke([
+        response = self._get_llm().invoke([
+            SystemMessage(content=prompts["system_prompt"]),
+            HumanMessage(content=prompts["user_prompt"]),
+        ])
+        return response.content
+
+    def _regenerate_with_llm(self, original_title, original_content,
+                             evaluation_result, scene_type):
+        """使用LLM重新生成内容.
+
+        Args:
+            original_title: 原文标题.
+            original_content: 原文内容.
+            evaluation_result: 评估结果.
+            scene_type: 场景类型.
+
+        Returns:
+            str: 修改后的Markdown内容.
+        """
+        from langchain_core.messages import SystemMessage, HumanMessage
+        prompts = self.prompt_engine.build_revision_prompt(
+            original_title, original_content,
+            evaluation_result, scene_type,
+        )
+        response = self._get_llm().invoke([
             SystemMessage(content=prompts["system_prompt"]),
             HumanMessage(content=prompts["user_prompt"]),
         ])
         return response.content
 
     # ==================== 模板生成（演示模式）====================
+
     def _generate_from_template(self, topic, content_type, scene_type,
-                                 keywords, custom_instructions, reference):
+                                keywords, custom_instructions, reference,
+                                timeline=None):
+        """使用模板引擎生成内容（演示模式）.
+
+        Args:
+            topic: 文章标题.
+            content_type: 内容类型.
+            scene_type: 场景类型.
+            keywords: 关键词列表.
+            custom_instructions: 额外指令.
+            reference: RAG参考知识.
+            timeline: 时间节点列表.
+
+        Returns:
+            str: 生成的Markdown内容.
+        """
         scene = SCENE_CONFIG.get(scene_type, SCENE_CONFIG["municipal"])
         kw = "、".join(keywords)
         now = datetime.now().strftime("%Y年%m月")
         ref_section = ""
         if reference:
             ref_section = f"\n## 行业知识参考\n{reference}\n"
+
+        # 时间节点段落
+        timeline_section = ""
+        if timeline:
+            items = []
+            for item in timeline:
+                phase = item.get("phase", "")
+                deadline = item.get("deadline", "")
+                if phase:
+                    items.append(f"- **{phase}**：{deadline}")
+            if items:
+                timeline_section = f"\n## 📅 时间节点\n" + "\n".join(items) + "\n"
 
         generators = {
             "article": self._tpl_article,
@@ -135,9 +269,45 @@ class ContentGenerator:
             "news_digest": self._tpl_news_digest,
         }
         generator = generators.get(content_type, self._tpl_article)
-        return generator(topic, scene, kw, now, keywords, ref_section)
+        return generator(topic, scene, kw, now, keywords, ref_section, timeline_section)
 
-    def _tpl_article(self, title, scene, kw, now, keywords, ref):
+    def _regenerate_from_template(self, original_title, original_content,
+                                  evaluation_result, scene_type):
+        """基于评估结果模板化重新生成（演示模式）.
+
+        Args:
+            original_title: 原文标题.
+            original_content: 原文内容.
+            evaluation_result: 评估结果.
+            scene_type: 场景类型.
+
+        Returns:
+            str: 修改后的Markdown内容.
+        """
+        scene = SCENE_CONFIG.get(scene_type, SCENE_CONFIG["municipal"])
+        suggestions = evaluation_result.get("suggestions", [])
+        suggestion_text = "\n".join(f"- {s}" for s in suggestions) if suggestions else "- 暂无具体建议"
+
+        # 在原文基础上追加修改说明
+        return f"""# {original_title}（修改版）
+
+> 基于评估意见修改 | {scene['name']} | {datetime.now().strftime("%Y年%m月")}
+
+## 📝 修改说明
+
+本次修改针对以下问题进行优化：
+{suggestion_text}
+
+---
+
+{original_content}
+
+---
+
+*吉康环境 —— 让绿色成为生产力*
+"""
+
+    def _tpl_article(self, title, scene, kw, now, keywords, ref, timeline_section=""):
         return f"""# {title}
 
 > 本文由 AuraScribe AI 自动生成 | {scene['name']} | {now}
@@ -185,13 +355,13 @@ class ContentGenerator:
 ## 展望
 
 未来，吉康环境将继续深耕{scene['name']}领域，以"让绿色成为生产力"为使命，持续为客户创造价值。
-{ref}
+{timeline_section}{ref}
 ---
 
 *吉康环境 —— 让绿色成为生产力*
 """
 
-    def _tpl_battle_report(self, title, scene, kw, now, keywords, ref):
+    def _tpl_battle_report(self, title, scene, kw, now, keywords, ref, timeline_section=""):
         projects = ["滨海新区污水处理提标改造工程", "长三角化工园区VOCs综合治理项目",
                      "西部工业园区废水零排放示范工程", "城市固废资源化循环经济产业园"]
         project = random.choice(projects)
@@ -256,13 +426,13 @@ class ContentGenerator:
 
 > "吉康环境的技术方案完全超出预期，不仅稳定达标，运行成本还比原方案降低了三分之一。"
 > —— 项目甲方负责人
-{ref}
+{timeline_section}{ref}
 ---
 
 *吉康环境 —— 让绿色成为生产力*
 """
 
-    def _tpl_policy_analysis(self, title, scene, kw, now, keywords, ref):
+    def _tpl_policy_analysis(self, title, scene, kw, now, keywords, ref, timeline_section=""):
         return f"""# {title}
 
 > 政策解读 | AuraScribe AI 生成 | {now}
@@ -310,13 +480,13 @@ class ContentGenerator:
 1. 提前布局改造，降低成本
 2. 选择技术实力雄厚的服务商
 3. 将碳减排纳入总体考量
-{ref}
+{timeline_section}{ref}
 ---
 
 *吉康环境 —— 让绿色成为生产力*
 """
 
-    def _tpl_tech_trend(self, title, scene, kw, now, keywords, ref):
+    def _tpl_tech_trend(self, title, scene, kw, now, keywords, ref, timeline_section=""):
         return f"""# {title}
 
 > 技术趋势 | AuraScribe AI 生成 | {now}
@@ -349,13 +519,13 @@ class ContentGenerator:
    ↑              ↓              ↑
 实时数据    仿真模拟优化    自动调控指令
 ```
-{ref}
+{timeline_section}{ref}
 ---
 
 *吉康环境 —— 让绿色成为生产力*
 """
 
-    def _tpl_news_digest(self, title, scene, kw, now, keywords, ref):
+    def _tpl_news_digest(self, title, scene, kw, now, keywords, ref, timeline_section=""):
         return f"""# {title}
 
 > 行业资讯速览 | AuraScribe AI 整理 | {now}
@@ -395,19 +565,27 @@ class ContentGenerator:
 ### 5. 固废处理市场突破8000亿元
 
 危废处置、建筑垃圾资源化年增速超20%。
-{ref}
+{timeline_section}{ref}
 ---
 
 *吉康环境 —— 让绿色成为生产力*
 """
 
     # ==================== HTML 转换 ====================
+
     def _markdown_to_html(self, markdown_text: str) -> str:
+        """将Markdown转换为HTML.
+
+        Args:
+            markdown_text: Markdown格式文本.
+
+        Returns:
+            str: HTML格式文本.
+        """
         try:
             import markdown as md
             html = md.markdown(markdown_text, extensions=["extra", "tables", "toc"])
         except ImportError:
-            # 简单回退
             html = markdown_text.replace("\n", "<br>")
         return f"""<!DOCTYPE html>
 <html lang="zh-CN">
