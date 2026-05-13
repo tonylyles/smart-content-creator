@@ -50,8 +50,48 @@ class WorkflowEngine:
         self.execution_log: list = []
         # 缓存上一步输出
         self._last_result: Any = None
+        # DAG Pipeline 引用（由 main.py 注入，实现调度器与引擎协同）
+        self._pipeline = None
 
         print("[引擎] WorkflowEngine 工作流引擎已初始化")
+
+    # ==================== Pipeline 对接 ====================
+
+    def set_pipeline(self, pipeline):
+        """注入 DAG Pipeline 引用（由 main.py 调用）
+
+        使得 WorkflowEngine 可以通过 run_task 触发完整的闭环 Pipeline。
+        Pipeline 是调度器中的 ContentPipeline 实例，执行顺序：
+        crawl → rag_update → generate → evaluate → (自动重试)
+
+        Args:
+            pipeline: ContentPipeline 实例（来自 src.scheduler.py）
+        """
+        self._pipeline = pipeline
+        print("[引擎] ✅ DAG Pipeline 已注入到 WorkflowEngine")
+
+    def run_full_pipeline(self, **kwargs) -> Dict[str, Any]:
+        """触发完整的 DAG 闭环 Pipeline
+
+        由 WorkflowEngine 统一调度，内部调用 ContentPipeline.execute()。
+
+        Args:
+            topic: 文章主题
+            content_type: 内容类型
+            scene_type: 场景类型
+            keywords: 关键词列表
+            timeline: 时间节点列表
+            其他参数传递给 Pipeline
+
+        Returns:
+            Pipeline 执行报告（包含 status, content, evaluation, stages, sla_pass 等）
+        """
+        if self._pipeline is None:
+            return {
+                "status": "error",
+                "message": "Pipeline 未初始化，请先调用 set_pipeline()",
+            }
+        return self._pipeline.execute(**kwargs)
 
     # ==================== 核心方法 ====================
 
@@ -253,6 +293,20 @@ class WorkflowEngine:
                 "scene_type": task_data.get("scene_type", "municipal"),
             })
             return result["data"] if result["status"] == "success" else {}
+
+        elif action == "run_pipeline":
+            # 触发完整的 DAG 闭环 Pipeline（爬虫→RAG→生成→评估→重试）
+            pipeline_kwargs = {
+                "topic": task_data.get("title", task_data.get("topic", "")),
+                "content_type": task_data.get("content_type", "article"),
+                "scene_type": task_data.get("scene_type", "municipal"),
+                "keywords": task_data.get("keywords"),
+                "timeline": task_data.get("timeline"),
+                "categories": task_data.get("categories"),
+                "context": task_data.get("context"),
+                "custom_instructions": task_data.get("custom_instructions"),
+            }
+            return self.run_full_pipeline(**pipeline_kwargs)
 
         else:
             return {"status": "error", "message": f"未知 action: '{action}'"}

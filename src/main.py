@@ -387,6 +387,30 @@ def init_system():
     # ==================== 6. 实例化 TaskScheduler ====================
     scheduler = TaskScheduler(config=config, workflow_engine=engine)
 
+    # ==================== 6.5 注入 DAG Pipeline（对接凯睿模块）====================
+    # 将真实组件注入调度器的闭环流水线
+    vector_db_for_pipeline = None
+    try:
+        from src.rag.vector_db import VectorDB
+        rag_config = config.get("rag", {})
+        vector_db_for_pipeline = VectorDB(config=rag_config)
+        print("[初始化] ✅ VectorDB 已创建（供 Pipeline 使用）")
+    except ImportError:
+        print("[初始化] ⚠️ VectorDB 导入失败，Pipeline 的 RAG 阶段将跳过")
+    except Exception as e:
+        print(f"[初始化] ⚠️ VectorDB 创建失败: {e}")
+
+    scheduler.init_pipeline(
+        spider_manager=spider_manager,
+        vector_db=vector_db_for_pipeline,
+        generator=generator,
+        evaluator=evaluator,
+    )
+    print("[初始化] ✅ DAG Pipeline 已注入（crawl→RAG→generate→evaluate→retry）")
+
+    # 将 pipeline 引用传递给 engine（让 WorkflowEngine 也能触发 Pipeline）
+    engine.set_pipeline(scheduler._pipeline)
+
     # 配置默认定时任务
     scheduler_cfg = config.get("scheduler", {})
 

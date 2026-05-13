@@ -1,4 +1,4 @@
-"""用户界面 - 刘凯睿负责
+"""用户界面 - 刘凯睿负责 + 曾睿（调度面板）
 
 功能：
 - Gradio Web界面（轻量级，无需前端构建）
@@ -10,6 +10,7 @@
 - 用户偏好设置
 - 知识库检索界面
 - 系统状态监控
+- 调度管理面板（发布计划、定时任务、SLA监控）
 - 与workflow.py引擎对接
 
 注意：Vue3前端在独立frontend项目中，此模块提供
@@ -42,15 +43,17 @@ class AppUI:
         config: 全局配置字典.
     """
 
-    def __init__(self, workflow_engine, config):
+    def __init__(self, workflow_engine, config, scheduler=None):
         """初始化用户界面.
 
         Args:
             workflow_engine: 工作流引擎实例.
             config: 全局配置字典.
+            scheduler: 调度器实例（TaskScheduler，可选）.
         """
         self.engine = workflow_engine
         self.config = config
+        self.scheduler = scheduler  # 曾睿的调度器
         self._app = None
 
     def run(self, host="127.0.0.1", port=7860, share=False):
@@ -464,6 +467,238 @@ class AppUI:
                 status_output = gr.JSON(label="系统状态")
                 status_btn.click(lambda: self.show_status(), outputs=[status_output])
 
+            # ==================== Tab 6: 调度面板（曾睿） ====================
+            with gr.Tab("⏰ 发布计划"):
+
+                # --- 调度面板回调函数 ---
+                def list_scheduler_tasks():
+                    """查看已注册的调度任务"""
+                    if self.scheduler is None:
+                        return "调度器未初始化", ""
+                    tasks = self.scheduler.list_tasks()
+                    if not tasks:
+                        return "暂无已注册的调度任务", ""
+                    lines = []
+                    for t in tasks:
+                        lines.append(f"  📌 {t.get('name', 'N/A')} | {t.get('trigger', t.get('type', 'N/A'))} | 下次执行: {t.get('next_run', 'N/A')}")
+                    task_list = "\n".join(lines)
+                    stats = self.scheduler.get_stats()
+                    stat_text = (
+                        f"运行模式: {stats['mode']}\n"
+                        f"时区: {stats['timezone']}\n"
+                        f"线程池: {stats['max_workers']} 线程\n"
+                        f"总任务数: {stats['total_tasks']}\n"
+                        f"SLA 达标率: {stats['pipeline']['sla_pass_rate']}%\n"
+                        f"平均耗时: {stats['pipeline']['avg_duration_sec']}s / 目标 {stats['pipeline']['sla_target_sec']}s\n"
+                        f"Pipieline 执行次数: {stats['pipeline']['total_runs']}"
+                    )
+                    return task_list, stat_text
+
+                def add_schedule_task(name, topic, content_type, scene_type,
+                                      schedule_type, cron_expr, daily_hour, daily_minute):
+                    """添加调度任务"""
+                    if self.scheduler is None:
+                        return "❌ 调度器未初始化，无法添加任务"
+
+                    if not name.strip():
+                        return "❌ 任务名称不能为空"
+                    if not topic.strip():
+                        return "❌ 文章主题不能为空"
+
+                    try:
+                        if schedule_type == "cron":
+                            if not cron_expr.strip():
+                                return "❌ Cron 模式需要填写 Cron 表达式"
+                            self.scheduler.add_pipeline_job(
+                                job_name=name.strip(),
+                                topic=topic.strip(),
+                                content_type=content_type,
+                                scene_type=scene_type,
+                                cron=cron_expr.strip(),
+                            )
+                        elif schedule_type == "daily":
+                            self.scheduler.add_pipeline_job(
+                                job_name=name.strip(),
+                                topic=topic.strip(),
+                                content_type=content_type,
+                                scene_type=scene_type,
+                                hour=int(daily_hour),
+                                minute=int(daily_minute),
+                            )
+                        else:
+                            return f"❌ 未知调度类型: {schedule_type}"
+
+                        return f"✅ 任务 '{name.strip()}' 已添加"
+                    except Exception as e:
+                        return f"❌ 添加任务失败: {e}"
+
+                def remove_schedule_task(task_name):
+                    """移除调度任务"""
+                    if self.scheduler is None:
+                        return "❌ 调度器未初始化"
+                    if not task_name.strip():
+                        return "❌ 任务名称不能为空"
+                    try:
+                        self.scheduler.remove_task(task_name.strip())
+                        return f"✅ 任务 '{task_name.strip()}' 已移除"
+                    except Exception as e:
+                        return f"❌ 移除失败: {e}"
+
+                def manual_trigger_pipeline(topic, content_type, scene_type, keywords_text):
+                    """手动触发一次完整 Pipeline"""
+                    if self.scheduler is None:
+                        return "❌ 调度器未初始化", ""
+                    if not topic.strip():
+                        return "❌ 文章主题不能为空", ""
+
+                    keywords = [k.strip() for k in keywords_text.split(",") if k.strip()] if keywords_text else []
+
+                    try:
+                        report = self.scheduler.run_pipeline_now(
+                            topic=topic.strip(),
+                            content_type=content_type,
+                            scene_type=scene_type,
+                            keywords=keywords,
+                        )
+
+                        # 格式化报告
+                        lines = [
+                            f"{'='*40}",
+                            f"Pipeline 执行报告",
+                            f"{'='*40}",
+                            f"状态: {'✅ 成功' if report['status'] == 'success' else '❌ 失败'}",
+                            f"全流程耗时: {report['total_duration_sec']}s",
+                            f"SLA 达标: {'✅' if report['sla_pass'] else '❌'} (目标: {report['sla_target_sec']}s)",
+                            f"重试次数: {report['retry_count']}/{report['max_retries']}",
+                            f"",
+                            f"各阶段执行情况:",
+                        ]
+                        for name, info in report.get("stages", {}).items():
+                            icon = {"success": "✅", "error": "❌", "skipped": "⏭️"}.get(info["status"], "❓")
+                            lines.append(f"  {icon} {name}: {info['duration_ms']}ms")
+
+                        eval_data = report.get("evaluation", {})
+                        if eval_data:
+                            lines.extend([
+                                "",
+                                f"最终评估结果:",
+                                f"  技术准确率: {eval_data.get('accuracy_score', 0)*100:.0f}%",
+                                f"  合规性: {eval_data.get('compliance_score', 0)*100:.0f}%",
+                                f"  综合评分: {eval_data.get('overall', 0)*100:.0f}%",
+                                f"  结论: {eval_data.get('result', 'N/A')}",
+                            ])
+
+                        # 提取生成内容预览
+                        content = ""
+                        gen_data = report.get("content", {})
+                        if isinstance(gen_data, dict):
+                            content = gen_data.get("markdown", "")
+                        elif isinstance(gen_data, str):
+                            content = gen_data
+
+                        return "\n".join(lines), content
+                    except Exception as e:
+                        return f"❌ Pipeline 执行失败: {e}", ""
+
+                # --- 界面布局 ---
+                gr.Markdown("### ⏰ 发布计划管理\n管理自动定时内容创作任务，监控全流程 SLA")
+
+                with gr.Row():
+                    # 左列：任务管理
+                    with gr.Column(scale=2):
+                        # 添加任务
+                        gr.Markdown("#### ➕ 添加定时任务")
+                        with gr.Row():
+                            sched_name = gr.Textbox(label="任务名称", placeholder="如：每日早间环保资讯", scale=2)
+                            sched_type = gr.Dropdown(
+                                choices=["daily", "cron"],
+                                value="daily",
+                                label="调度类型",
+                                scale=1,
+                            )
+
+                        with gr.Row():
+                            sched_topic = gr.Textbox(label="文章主题", placeholder="如：广州环保政策解读")
+                            sched_scene = gr.Dropdown(
+                                choices=["municipal", "industrial"],
+                                value="municipal",
+                                label="场景类型",
+                            )
+
+                        sched_ctype = gr.Dropdown(
+                            choices=["article", "battle_report", "policy_analysis", "tech_trend", "news_digest"],
+                            value="article",
+                            label="内容类型",
+                        )
+
+                        with gr.Row():
+                            cron_input = gr.Textbox(label="Cron 表达式", placeholder="0 2 * * *", visible=False)
+                            daily_hour = gr.Number(label="每日执行-小时", value=9, minimum=0, maximum=23, precision=0)
+                            daily_minute = gr.Number(label="每日执行-分钟", value=0, minimum=0, maximum=59, precision=0)
+
+                        def toggle_cron_visibility(schedule_type):
+                            return gr.Textbox(visible=(schedule_type == "cron")), gr.Row(visible=(schedule_type != "cron"))
+
+                        sched_type.change(
+                            toggle_cron_visibility,
+                            inputs=[sched_type],
+                            outputs=[cron_input, daily_hour],
+                        )
+
+                        add_task_btn = gr.Button("➕ 添加任务", variant="primary")
+                        add_task_status = gr.Textbox(label="操作结果", interactive=False)
+
+                        # 移除任务
+                        gr.Markdown("#### 🗑️ 移除任务")
+                        with gr.Row():
+                            remove_name = gr.Textbox(label="任务名称", placeholder="输入要移除的任务名称")
+                            remove_btn = gr.Button("🗑️ 移除", variant="stop")
+                        remove_status = gr.Textbox(label="移除结果", interactive=False)
+
+                    # 右列：任务列表 + 统计
+                    with gr.Column(scale=2):
+                        gr.Markdown("#### 📋 已注册任务")
+                        refresh_btn = gr.Button("🔄 刷新任务列表")
+                        task_list_output = gr.Textbox(label="任务列表", lines=6, interactive=False)
+                        stats_output = gr.Textbox(label="调度器统计", lines=6, interactive=False)
+
+                # 手动触发
+                gr.Markdown("#### 🚀 手动触发 Pipeline")
+                with gr.Row():
+                    trigger_topic = gr.Textbox(label="文章主题", placeholder="广州环保政策动态", scale=3)
+                    trigger_ctype = gr.Dropdown(
+                        choices=["article", "battle_report", "policy_analysis", "tech_trend", "news_digest"],
+                        value="article",
+                        label="内容类型",
+                        scale=1,
+                    )
+                    trigger_scene = gr.Dropdown(
+                        choices=["municipal", "industrial"],
+                        value="municipal",
+                        label="场景",
+                        scale=1,
+                    )
+                trigger_kw = gr.Textbox(label="关键词（逗号分隔）", placeholder="环保, 绿色发展")
+                trigger_btn = gr.Button("🚀 立即执行 Pipeline", variant="primary")
+                with gr.Row():
+                    trigger_report = gr.Textbox(label="执行报告", lines=10, interactive=False, scale=2)
+                    trigger_content = gr.Textbox(label="生成内容预览", lines=10, interactive=False, scale=3)
+
+                # 绑定事件
+                add_task_btn.click(
+                    add_schedule_task,
+                    inputs=[sched_name, sched_topic, sched_ctype, sched_scene,
+                            sched_type, cron_input, daily_hour, daily_minute],
+                    outputs=[add_task_status],
+                )
+                remove_btn.click(remove_schedule_task, inputs=[remove_name], outputs=[remove_status])
+                refresh_btn.click(list_scheduler_tasks, outputs=[task_list_output, stats_output])
+                trigger_btn.click(
+                    manual_trigger_pipeline,
+                    inputs=[trigger_topic, trigger_ctype, trigger_scene, trigger_kw],
+                    outputs=[trigger_report, trigger_content],
+                )
+
         return app
 
     # ==================== 格式化辅助方法 ====================
@@ -584,6 +819,10 @@ class AppUI:
             "engine_stages": len(self.engine.stages) if hasattr(self.engine, 'stages') else 0,
             "registered_stages": self.engine.list_stages() if hasattr(self.engine, 'list_stages') else [],
         }
+        # 如果有调度器，附加调度信息
+        if self.scheduler is not None:
+            sched_stats = self.scheduler.get_stats()
+            status["scheduler"] = sched_stats
         print(json.dumps(status, ensure_ascii=False, indent=2))
         return status
 
