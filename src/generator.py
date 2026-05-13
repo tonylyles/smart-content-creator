@@ -7,6 +7,8 @@
 - 市政/工业场景切换
 - Markdown/HTML双格式输出
 - 项目战报快捷生成
+- 时间节点感知生成
+- 基于评估建议的重新生成
 """
 import time
 import json
@@ -19,74 +21,73 @@ from src.prompt_engine import PromptEngine, SCENE_CONFIG, TYPE_TEMPLATES
 
 
 class ContentGenerator:
-    """内容生成引擎
+    """内容生成引擎.
 
     双模式架构：
     - 有LLM → 调用大模型生成
     - 无LLM → 模板引擎生成（演示用）
+
+    Attributes:
+        config: 全局配置字典.
+        prompt_engine: 提示词引擎实例.
     """
 
     def __init__(self, config, prompt_engine=None):
+        """初始化内容生成引擎.
+
+        Args:
+            config: 全局配置字典.
+            prompt_engine: 提示词引擎实例，默认自动创建.
+        """
         self.config = config
         self.prompt_engine = prompt_engine or PromptEngine(config)
         self._llm = None
         self._has_llm = False
 
     def _get_llm(self):
-        """获取LLM实例（延迟加载，自动适配 DeepSeek）"""
+        """获取LLM实例（延迟加载）.
+
+        Returns:
+            ChatOpenAI实例或None.
+        """
         if self._llm is None and not self._has_llm:
             try:
                 from langchain_openai import ChatOpenAI
                 gen_config = self.config.get("generator", {})
-                llm_config = self.config.get("llm", {})
-                # API Key 优先级：generator.api_key > llm.api_key > 环境变量
-                api_key = (gen_config.get("api_key", "")
-                           or llm_config.get("api_key", "")
-                           or "")
+                api_key = gen_config.get("api_key", "") or self.config.get("llm_api_key", "")
                 if api_key:
-                    # 检测是否为 DeepSeek（Key 以 sk- 开头且 base_url 包含 deepseek）
-                    base_url = (gen_config.get("base_url")
-                                or llm_config.get("base_url", "")
-                                or "https://api.openai.com/v1")
-                    model_name = gen_config.get("model", "gpt-4")
-
-                    # DeepSeek 自动适配
-                    if "deepseek" in base_url.lower():
-                        model_name = "deepseek-chat"  # 强制覆盖
-                        print(f"[Generator] 🔧 DeepSeek 模式: model={model_name}, base_url={base_url}")
-
                     self._llm = ChatOpenAI(
-                        model=model_name,
+                        model=gen_config.get("model", "gpt-4"),
                         api_key=api_key,
-                        base_url=base_url,
+                        base_url=gen_config.get("base_url", "https://api.openai.com/v1"),
                         max_tokens=gen_config.get("max_tokens", 4096),
                         temperature=gen_config.get("temperature", 0.7),
                     )
-                    print(f"[Generator] ✅ LLM 就绪: model={model_name}, base_url={base_url}")
-            except ImportError as e:
-                print(f"[Generator] ❌ langchain-openai 未安装，无法使用 LLM: {e}")
+            except ImportError:
+                pass
             self._has_llm = True
         return self._llm
 
     def generate(self, topic, context=None, content_type="article",
                  scene_type="municipal", keywords=None,
                  custom_instructions=None, reference=None,
-                 content_type_hint=None, tone=None, target_audience=None,
-                 content_tone=None, **kwargs):
-        """生成内容
+                 timeline=None):
+        """生成内容.
 
         Args:
-            topic: 文章标题
-            context: 上下文（兼容旧接口）
-            content_type: 内容类型
-            scene_type: 场景类型
-            keywords: 关键词
-            custom_instructions: 额外指令
-            reference: RAG参考知识
-            content_type_hint: 业务规则注入的内容类型提示
-            tone: 业务规则注入的语调
-            target_audience: 目标受众
-            content_tone: 内容语气
+            topic: 文章标题.
+            context: 上下文（兼容旧接口）.
+            content_type: 内容类型，可选值：
+                article/battle_report/policy_analysis/tech_trend/news_digest.
+            scene_type: 场景类型，可选值：municipal/industrial.
+            keywords: 关键词列表.
+            custom_instructions: 额外指令.
+            reference: RAG参考知识.
+            timeline: 时间节点列表，格式为 [{"phase": str, "deadline": str}].
+
+        Returns:
+            dict: {"markdown": str, "html": str, "generation_time_ms": int,
+                   "content_type": str, "scene_type": str}
         """
         start_time = time.time()
         keywords = keywords or ["环保", "绿色发展"]
@@ -95,17 +96,15 @@ class ContentGenerator:
         if llm:
             markdown_content = self._generate_with_llm(
                 topic, context, content_type, scene_type,
-                keywords, custom_instructions, reference,
-                content_type_hint, tone, target_audience, content_tone,
+                keywords, custom_instructions, reference, timeline,
             )
-            print(f"[Generator] 📝 LLM 返回内容长度: {len(markdown_content) if markdown_content else 0}")
         else:
             markdown_content = self._generate_from_template(
                 topic, content_type, scene_type, keywords,
-                custom_instructions, reference,
+                custom_instructions, reference, timeline,
             )
 
-        html_content = self._markdown_to_wechat_html(markdown_content)
+        html_content = self._markdown_to_html(markdown_content)
         generation_time = int((time.time() - start_time) * 1000)
 
         return {
@@ -116,8 +115,54 @@ class ContentGenerator:
             "scene_type": scene_type,
         }
 
+    def regenerate(self, original_title, original_content,
+                   evaluation_result, scene_type="municipal"):
+        """基于评估结果重新生成内容.
+
+        Args:
+            original_title: 原文标题.
+            original_content: 原文Markdown内容.
+            evaluation_result: 评估结果字典，含 scores 和 suggestions.
+            scene_type: 场景类型.
+
+        Returns:
+            dict: 同 generate() 返回格式.
+        """
+        start_time = time.time()
+
+        llm = self._get_llm()
+        if llm:
+            markdown_content = self._regenerate_with_llm(
+                original_title, original_content,
+                evaluation_result, scene_type,
+            )
+        else:
+            markdown_content = self._regenerate_from_template(
+                original_title, original_content,
+                evaluation_result, scene_type,
+            )
+
+        html_content = self._markdown_to_html(markdown_content)
+        generation_time = int((time.time() - start_time) * 1000)
+
+        return {
+            "markdown": markdown_content,
+            "html": html_content,
+            "generation_time_ms": generation_time,
+            "content_type": "revision",
+            "scene_type": scene_type,
+        }
+
     def generate_batch(self, topics, **kwargs):
-        """批量生成"""
+        """批量生成内容.
+
+        Args:
+            topics: 主题列表.
+            **kwargs: 传递给 generate() 的其他参数.
+
+        Returns:
+            list[dict]: 生成结果列表.
+        """
         results = []
         for topic in topics:
             result = self.generate(topic, **kwargs)
@@ -125,20 +170,53 @@ class ContentGenerator:
         return results
 
     # ==================== LLM 生成 ====================
+
     def _generate_with_llm(self, topic, context, content_type, scene_type,
-                           keywords, custom_instructions, reference,
-                           content_type_hint=None, tone=None,
-                           target_audience=None, content_tone=None):
+                           keywords, custom_instructions, reference, timeline):
+        """使用LLM生成内容.
+
+        Args:
+            topic: 文章标题.
+            context: 上下文信息.
+            content_type: 内容类型.
+            scene_type: 场景类型.
+            keywords: 关键词列表.
+            custom_instructions: 额外指令.
+            reference: RAG参考知识.
+            timeline: 时间节点列表.
+
+        Returns:
+            str: 生成的Markdown内容.
+        """
         from langchain_core.messages import SystemMessage, HumanMessage
         prompts = self.prompt_engine.build_prompt(
             topic, context, content_type, scene_type,
-            keywords, custom_instructions, reference,
-            content_type_hint=content_type_hint,
-            tone=tone,
-            target_audience=target_audience,
-            content_tone=content_tone,
+            keywords, custom_instructions, reference, timeline,
         )
-        # 使用 invoke（同步调用），而非 ainvoke（异步）
+        response = self._get_llm().invoke([
+            SystemMessage(content=prompts["system_prompt"]),
+            HumanMessage(content=prompts["user_prompt"]),
+        ])
+        return response.content
+
+    def _regenerate_with_llm(self, original_title, original_content,
+                             evaluation_result, scene_type):
+        """使用LLM重新生成内容.
+
+        Args:
+            original_title: 原文标题.
+            original_content: 原文内容.
+            evaluation_result: 评估结果.
+            scene_type: 场景类型.
+
+        Returns:
+            str: 修改后的Markdown内容.
+        """
+        from langchain_core.messages import SystemMessage, HumanMessage
+        prompts = self.prompt_engine.build_revision_prompt(
+            original_title, original_content,
+            evaluation_result, scene_type,
+        )
         response = self._get_llm().invoke([
             SystemMessage(content=prompts["system_prompt"]),
             HumanMessage(content=prompts["user_prompt"]),
@@ -146,14 +224,42 @@ class ContentGenerator:
         return response.content
 
     # ==================== 模板生成（演示模式）====================
+
     def _generate_from_template(self, topic, content_type, scene_type,
-                                 keywords, custom_instructions, reference):
+                                keywords, custom_instructions, reference,
+                                timeline=None):
+        """使用模板引擎生成内容（演示模式）.
+
+        Args:
+            topic: 文章标题.
+            content_type: 内容类型.
+            scene_type: 场景类型.
+            keywords: 关键词列表.
+            custom_instructions: 额外指令.
+            reference: RAG参考知识.
+            timeline: 时间节点列表.
+
+        Returns:
+            str: 生成的Markdown内容.
+        """
         scene = SCENE_CONFIG.get(scene_type, SCENE_CONFIG["municipal"])
         kw = "、".join(keywords)
         now = datetime.now().strftime("%Y年%m月")
         ref_section = ""
         if reference:
             ref_section = f"\n## 行业知识参考\n{reference}\n"
+
+        # 时间节点段落
+        timeline_section = ""
+        if timeline:
+            items = []
+            for item in timeline:
+                phase = item.get("phase", "")
+                deadline = item.get("deadline", "")
+                if phase:
+                    items.append(f"- **{phase}**：{deadline}")
+            if items:
+                timeline_section = f"\n## 📅 时间节点\n" + "\n".join(items) + "\n"
 
         generators = {
             "article": self._tpl_article,
@@ -163,9 +269,45 @@ class ContentGenerator:
             "news_digest": self._tpl_news_digest,
         }
         generator = generators.get(content_type, self._tpl_article)
-        return generator(topic, scene, kw, now, keywords, ref_section)
+        return generator(topic, scene, kw, now, keywords, ref_section, timeline_section)
 
-    def _tpl_article(self, title, scene, kw, now, keywords, ref):
+    def _regenerate_from_template(self, original_title, original_content,
+                                  evaluation_result, scene_type):
+        """基于评估结果模板化重新生成（演示模式）.
+
+        Args:
+            original_title: 原文标题.
+            original_content: 原文内容.
+            evaluation_result: 评估结果.
+            scene_type: 场景类型.
+
+        Returns:
+            str: 修改后的Markdown内容.
+        """
+        scene = SCENE_CONFIG.get(scene_type, SCENE_CONFIG["municipal"])
+        suggestions = evaluation_result.get("suggestions", [])
+        suggestion_text = "\n".join(f"- {s}" for s in suggestions) if suggestions else "- 暂无具体建议"
+
+        # 在原文基础上追加修改说明
+        return f"""# {original_title}（修改版）
+
+> 基于评估意见修改 | {scene['name']} | {datetime.now().strftime("%Y年%m月")}
+
+## 📝 修改说明
+
+本次修改针对以下问题进行优化：
+{suggestion_text}
+
+---
+
+{original_content}
+
+---
+
+*吉康环境 —— 让绿色成为生产力*
+"""
+
+    def _tpl_article(self, title, scene, kw, now, keywords, ref, timeline_section=""):
         return f"""# {title}
 
 > 本文由 AuraScribe AI 自动生成 | {scene['name']} | {now}
@@ -213,13 +355,13 @@ class ContentGenerator:
 ## 展望
 
 未来，吉康环境将继续深耕{scene['name']}领域，以"让绿色成为生产力"为使命，持续为客户创造价值。
-{ref}
+{timeline_section}{ref}
 ---
 
 *吉康环境 —— 让绿色成为生产力*
 """
 
-    def _tpl_battle_report(self, title, scene, kw, now, keywords, ref):
+    def _tpl_battle_report(self, title, scene, kw, now, keywords, ref, timeline_section=""):
         projects = ["滨海新区污水处理提标改造工程", "长三角化工园区VOCs综合治理项目",
                      "西部工业园区废水零排放示范工程", "城市固废资源化循环经济产业园"]
         project = random.choice(projects)
@@ -284,13 +426,13 @@ class ContentGenerator:
 
 > "吉康环境的技术方案完全超出预期，不仅稳定达标，运行成本还比原方案降低了三分之一。"
 > —— 项目甲方负责人
-{ref}
+{timeline_section}{ref}
 ---
 
 *吉康环境 —— 让绿色成为生产力*
 """
 
-    def _tpl_policy_analysis(self, title, scene, kw, now, keywords, ref):
+    def _tpl_policy_analysis(self, title, scene, kw, now, keywords, ref, timeline_section=""):
         return f"""# {title}
 
 > 政策解读 | AuraScribe AI 生成 | {now}
@@ -338,13 +480,13 @@ class ContentGenerator:
 1. 提前布局改造，降低成本
 2. 选择技术实力雄厚的服务商
 3. 将碳减排纳入总体考量
-{ref}
+{timeline_section}{ref}
 ---
 
 *吉康环境 —— 让绿色成为生产力*
 """
 
-    def _tpl_tech_trend(self, title, scene, kw, now, keywords, ref):
+    def _tpl_tech_trend(self, title, scene, kw, now, keywords, ref, timeline_section=""):
         return f"""# {title}
 
 > 技术趋势 | AuraScribe AI 生成 | {now}
@@ -377,13 +519,13 @@ class ContentGenerator:
    ↑              ↓              ↑
 实时数据    仿真模拟优化    自动调控指令
 ```
-{ref}
+{timeline_section}{ref}
 ---
 
 *吉康环境 —— 让绿色成为生产力*
 """
 
-    def _tpl_news_digest(self, title, scene, kw, now, keywords, ref):
+    def _tpl_news_digest(self, title, scene, kw, now, keywords, ref, timeline_section=""):
         return f"""# {title}
 
 > 行业资讯速览 | AuraScribe AI 整理 | {now}
@@ -423,14 +565,23 @@ class ContentGenerator:
 ### 5. 固废处理市场突破8000亿元
 
 危废处置、建筑垃圾资源化年增速超20%。
-{ref}
+{timeline_section}{ref}
 ---
 
 *吉康环境 —— 让绿色成为生产力*
 """
 
     # ==================== HTML 转换 ====================
+
     def _markdown_to_html(self, markdown_text: str) -> str:
+        """将Markdown转换为HTML.
+
+        Args:
+            markdown_text: Markdown格式文本.
+
+        Returns:
+            str: HTML格式文本.
+        """
         try:
             import markdown as md
             html = md.markdown(markdown_text, extensions=["extra", "tables", "toc"])
@@ -445,103 +596,3 @@ h1{{color:#1a5c2a;border-bottom:3px solid #2d8c4e;padding-bottom:8px}}h2{{color:
 blockquote{{border-left:4px solid #2d8c4e;padding:8px 16px;color:#666;background:#f5faf5;border-radius:0 4px 4px 0}}
 table{{border-collapse:collapse;width:100%;margin:12px 0}}th{{background:#e8f5e9;color:#1a5c2a}}th,td{{border:1px solid #c8e6c9;padding:8px 14px}}pre{{background:#1a2a1a;color:#e0e0e0;padding:16px;border-radius:6px;overflow-x:auto}}code{{background:#f0f5f0;padding:2px 6px;border-radius:3px}}
 </style></head><body>{html}</body></html>"""
-
-    def _markdown_to_wechat_html(self, markdown_text: str) -> str:
-        """将 Markdown 转换为微信公众号兼容的 HTML（内联样式）
-
-        微信公众号会过滤 <style> 和 class，只保留内联 style。
-        此方法生成带内联样式的 HTML，可直接粘贴到公众号编辑器。
-        """
-        try:
-            import markdown as md
-            html = md.markdown(markdown_text, extensions=["extra", "tables", "toc"])
-        except ImportError:
-            html = markdown_text.replace("\n", "<br>")
-
-        # 后处理：将 HTML 标签替换为带内联样式的版本
-        import re
-
-        # h1
-        html = re.sub(
-            r'<h1>(.*?)</h1>',
-            r'<h1 style="font-size:22px;color:#1a5c2a;border-bottom:3px solid #2d8c4e;padding-bottom:8px;margin:24px 0 16px;">\1</h1>',
-            html
-        )
-        # h2
-        html = re.sub(
-            r'<h2>(.*?)</h2>',
-            r'<h2 style="font-size:19px;color:#2d8c4e;margin:20px 0 12px;padding-left:10px;border-left:4px solid #2d8c4e;">\1</h2>',
-            html
-        )
-        # h3
-        html = re.sub(
-            r'<h3>(.*?)</h3>',
-            r'<h3 style="font-size:17px;color:#3a7d3a;margin:16px 0 8px;">\1</h3>',
-            html
-        )
-        # p
-        html = re.sub(
-            r'<p>(.*?)</p>',
-            r'<p style="font-size:16px;line-height:1.8;color:#333;margin:10px 0;text-align:justify;">\1</p>',
-            html
-        )
-        # blockquote
-        html = re.sub(
-            r'<blockquote>(.*?)</blockquote>',
-            r'<blockquote style="border-left:4px solid #2d8c4e;padding:10px 16px;color:#666;background:#f5faf5;border-radius:0 4px 4px 0;margin:12px 0;">\1</blockquote>',
-            html, flags=re.DOTALL
-        )
-        # strong
-        html = re.sub(
-            r'<strong>(.*?)</strong>',
-            r'<strong style="color:#1a5c2a;">\1</strong>',
-            html
-        )
-        # table
-        html = re.sub(
-            r'<table>',
-            r'<table style="border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;">',
-            html
-        )
-        html = re.sub(
-            r'<th>',
-            r'<th style="background:#e8f5e9;color:#1a5c2a;border:1px solid #c8e6c9;padding:8px 14px;">',
-            html
-        )
-        html = re.sub(
-            r'<td>',
-            r'<td style="border:1px solid #c8e6c9;padding:8px 14px;">',
-            html
-        )
-        # ul/ol
-        html = re.sub(
-            r'<li>',
-            r'<li style="font-size:16px;line-height:1.8;color:#333;margin:4px 0;">',
-            html
-        )
-        # code
-        html = re.sub(
-            r'<code>(.*?)</code>',
-            r'<code style="background:#f0f5f0;padding:2px 6px;border-radius:3px;font-size:14px;color:#2d8c4e;">\1</code>',
-            html
-        )
-        # pre
-        html = re.sub(
-            r'<pre>',
-            r'<pre style="background:#1a2a1a;color:#e0e0e0;padding:16px;border-radius:6px;overflow-x:auto;font-size:13px;line-height:1.6;">',
-            html
-        )
-        # hr
-        html = re.sub(
-            r'<hr\s*/?>',
-            r'<hr style="border:none;border-top:1px solid #c8e6c9;margin:20px 0;"/>',
-            html
-        )
-
-        # 包裹在最外层 section 中
-        wechat_html = f"""<section style="padding:16px;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;max-width:677px;margin:0 auto;">
-{html}
-<p style="font-size:13px;color:#999;text-align:center;margin-top:24px;">吉康环境 —— 让绿色成为生产力</p>
-</section>"""
-
-        return wechat_html
