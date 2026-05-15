@@ -7,6 +7,16 @@ from typing import List, Dict, Any
 import time
 import random
 
+# Selenium 相关导入（用于 JavaScript 渲染）
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from webdriver_manager.chrome import ChromeDriverManager
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    SELENIUM_AVAILABLE = False
+
 
 class NewsCrawler:
     """新闻爬虫"""
@@ -23,11 +33,11 @@ class NewsCrawler:
         "industry": {
             "name": "行业资讯",
             "urls": [
-                {"url": "https://www.hbzhan.com/", "parser": "hbzhan"},          # 环保在线
-                {"url": "https://www.china-water.com.cn/", "parser": "chinawater"},  # 中国水网
-                {"url": "https://huanbao.bjx.com.cn/", "parser": "bjx_huanbao"},  # 北极星环保网
-                {"url": "https://www.cn-em.com/", "parser": "cnem"},            # 中国环境网
-                {"url": "https://www.ehwater.com/", "parser": "ehwater"}        # 中国环保设备网
+                {"url": "https://www.hbzhan.com/", "parser": "hbzhan"},          # 环保在线 ✅
+                {"url": "https://www.chinawater.com.cn/", "parser": "chinawater"},  # 中国水网 ✅
+                {"url": "https://huanbao.bjx.com.cn/", "parser": "bjx_huanbao", "requires_js": True},  # 北极星环保网（需要JS渲染）
+                {"url": "https://www.cenews.com.cn/", "parser": "cenews", "requires_js": True},       # 中国环境新闻网（需要JS渲染）
+                {"url": "https://www.ehwater.com/", "parser": "ehwater"}        # 中国环保设备网 ✅
             ]
         },
         "policy": {
@@ -56,8 +66,20 @@ class NewsCrawler:
         "Connection": "keep-alive"
     }
     
-    def __init__(self, timeout: int = 10):
-        self.timeout = timeout
+    # 配置参数
+    TIMEOUT = 30  # 增加超时时间到30秒
+    MAX_RETRIES = 3  # 最大重试次数
+    
+    # 智能延迟配置（根据网站类型设置不同间隔）
+    DELAY_CONFIG = {
+        "priority": {"min_delay": 1, "max_delay": 2},
+        "industry": {"min_delay": 2, "max_delay": 4},
+        "policy": {"min_delay": 3, "max_delay": 5},  # 政府网站延迟更长
+        "tech": {"min_delay": 2, "max_delay": 3}
+    }
+    
+    def __init__(self):
+        self.timeout = self.TIMEOUT
         self.session = requests.Session()
         self.session.headers.update(self.HEADERS)
     
@@ -239,7 +261,7 @@ class NewsCrawler:
             "hbzhan": self._parse_hbzhan,            # 环保在线
             "chinawater": self._parse_chinawater,     # 中国水网
             "bjx_huanbao": self._parse_bjx_huanbao,   # 北极星环保网
-            "cnem": self._parse_cnem,                # 中国环境网
+            "cenews": self._parse_cenews,            # 中国环境新闻网
             "ehwater": self._parse_ehwater,          # 中国环保设备网
             "mee": self._parse_mee,                  # 生态环境部
             "mepc": self._parse_mepc,                # 广东省生态环境厅
@@ -269,12 +291,98 @@ class NewsCrawler:
         return self._parse_generic(html, "中国水网", "industry")
 
     def _parse_bjx_huanbao(self, html: str) -> List[Dict[str, Any]]:
-        """解析北极星环保网"""
-        return self._parse_generic(html, "北极星环保网", "industry")
+        """解析北极星环保网 - 专用解析器"""
+        results = []
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            
+            # 北极星环保网常见结构1：新闻列表
+            news_list = soup.find("div", class_="news-list")
+            if news_list:
+                items = news_list.find_all("li")
+                for item in items[:15]:
+                    title_tag = item.find("a")
+                    if title_tag:
+                        title = title_tag.get_text(strip=True)
+                        if len(title) >= 5:
+                            results.append({
+                                "title": title,
+                                "url": title_tag.get("href", "#"),
+                                "source": "北极星环保网",
+                                "category": "industry"
+                            })
+            
+            # 北极星环保网常见结构2：文章列表
+            if not results:
+                articles = soup.find_all("div", class_="article-item")
+                for article in articles[:15]:
+                    title_tag = article.find("h3") or article.find("h2")
+                    if title_tag and title_tag.a:
+                        title = title_tag.a.get_text(strip=True)
+                        if len(title) >= 5:
+                            results.append({
+                                "title": title,
+                                "url": title_tag.a.get("href", "#"),
+                                "source": "北极星环保网",
+                                "category": "industry"
+                            })
+            
+            # 如果专用解析器没找到，回退到通用解析器
+            if not results:
+                results = self._parse_generic(html, "北极星环保网", "industry")
+            
+        except Exception as e:
+            print(f"北极星环保网解析错误: {e}")
+            results = self._parse_generic(html, "北极星环保网", "industry")
+        
+        return results[:15]
 
-    def _parse_cnem(self, html: str) -> List[Dict[str, Any]]:
-        """解析中国环境网"""
-        return self._parse_generic(html, "中国环境网", "industry")
+    def _parse_cenews(self, html: str) -> List[Dict[str, Any]]:
+        """解析中国环境新闻网 - 专用解析器（替代失效的cn-em.com）"""
+        results = []
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            
+            # 中国环境新闻网常见结构1：列表容器
+            list_container = soup.find("div", id="listContainer") or soup.find("div", class_="list-container")
+            if list_container:
+                items = list_container.find_all("li")
+                for item in items[:15]:
+                    title_tag = item.find("a")
+                    if title_tag:
+                        title = title_tag.get_text(strip=True)
+                        if len(title) >= 5:
+                            results.append({
+                                "title": title,
+                                "url": title_tag.get("href", "#"),
+                                "source": "中国环境新闻网",
+                                "category": "industry"
+                            })
+            
+            # 中国环境新闻网常见结构2：新闻列表
+            if not results:
+                news_items = soup.find_all("div", class_="news-item")
+                for item in news_items[:15]:
+                    title_tag = item.find("h3") or item.find("h2")
+                    if title_tag and title_tag.a:
+                        title = title_tag.a.get_text(strip=True)
+                        if len(title) >= 5:
+                            results.append({
+                                "title": title,
+                                "url": title_tag.a.get("href", "#"),
+                                "source": "中国环境新闻网",
+                                "category": "industry"
+                            })
+            
+            # 如果专用解析器没找到，回退到通用解析器
+            if not results:
+                results = self._parse_generic(html, "中国环境新闻网", "industry")
+            
+        except Exception as e:
+            print(f"中国环境新闻网解析错误: {e}")
+            results = self._parse_generic(html, "中国环境新闻网", "industry")
+        
+        return results[:15]
 
     def _parse_ehwater(self, html: str) -> List[Dict[str, Any]]:
         """解析中国环保设备网"""
@@ -293,32 +401,92 @@ class NewsCrawler:
         return self._parse_generic(html, "湖北日报", "tech")
 
     def _parse_generic(self, html: str, source_name: str, category: str) -> List[Dict[str, Any]]:
-        """通用解析器 - 尝试多种常见HTML结构"""
+        """通用解析器 - 增强版，支持多种HTML结构"""
         results = []
         try:
             soup = BeautifulSoup(html, "html.parser")
             
-            # 尝试多种常见的标题选择器
+            # 扩展选择器列表，覆盖更多网站结构
             selectors = [
+                # 常见新闻标题结构
+                ("article h2 a", {}),
+                ("article h3 a", {}),
+                ("article header h2 a", {}),
+                ("article header h3 a", {}),
+                (".article h2 a", {}),
+                (".article h3 a", {}),
+                
+                # 列表结构
+                ("div.news-item h3 a", {}),
+                ("div.news-item h2 a", {}),
+                ("div.news-list li a", {}),
+                ("ul.news-list li a", {}),
+                ("div.list-content h3 a", {}),
+                ("div.content-list li a", {}),
+                ("div.news-content h3 a", {}),
+                ("div.news-content h2 a", {}),
+                
+                # 通用容器
+                ("div.main-content h3 a", {}),
+                ("div.container li a", {}),
+                ("div.list-box li a", {}),
+                ("div.list-body li a", {}),
+                ("div.main h3 a", {}),
+                ("div.main-body h3 a", {}),
+                
+                # 政府网站结构
+                ("div.list h4 a", {}),
+                ("ul.list li a", {}),
+                ("div.newslist li a", {}),
+                ("ul.newslist li a", {}),
+                
+                # 新闻列表变体
+                ("div.news_list li a", {}),
+                ("ul.news_list li a", {}),
+                ("div.newlist li a", {}),
+                ("div.newsList li a", {}),
+                
+                # 卡片式布局
+                ("div.card h3 a", {}),
+                ("div.card-title a", {}),
+                ("div.news-card h3 a", {}),
+                (".card-body h3 a", {}),
+                
+                # 表格布局
+                ("table.news-list a", {}),
+                ("tr.news-item a", {}),
+                
+                # 无序列表变体
+                ("ul li.news a", {}),
+                ("ul li.article a", {}),
+                ("ol li a", {}),
+                
+                # 通用链接样式
+                ("a.news-title", {}),
+                ("a.article-title", {}),
+                ("a[class*='title']", {}),
+                ("a[class*='news']", {}),
+                
+                # 回退选择器
                 ("h1 a", {}),
                 ("h2 a", {}),
                 ("h3 a", {}),
-                ("article a", {}),
-                ("div.news a", {}),
-                ("div.list a", {}),
-                ("ul li a", {}),
-                ("div.content a", {}),
+                ("h4 a", {}),
                 ("a.title", {}),
-                ("a[title]", {})
+                ("a[title]", {}),
+                ("div.title a", {}),
+                ("span.title a", {}),
+                (".title a", {})
             ]
             
             for selector, attrs in selectors:
                 items = soup.select(selector)
-                for item in items[:10]:  # 每个选择器最多取10条
+                for item in items[:6]:  # 每个选择器最多取6条
                     title = item.get_text(strip=True) if item else ""
                     url = item.get("href", "") if item else ""
                     
-                    if title and url:
+                    # 过滤条件：标题长度至少4个字符，URL非空且不为#
+                    if title and len(title) >= 4 and url and url != "#":
                         # 处理相对URL
                         if not url.startswith("http"):
                             url = "#"
@@ -330,11 +498,11 @@ class NewsCrawler:
                             "category": category
                         })
             
-            # 去重
+            # 去重 - 使用标题作为唯一键
             seen = set()
             unique_results = []
             for item in results:
-                key = (item["title"], item["url"])
+                key = item["title"]
                 if key not in seen:
                     seen.add(key)
                     unique_results.append(item)
@@ -342,33 +510,101 @@ class NewsCrawler:
             return unique_results[:15]  # 最多返回15条
             
         except Exception as e:
-            print(f"{source_name}解析错误: {e}")
+            print(f"{source_name}通用解析器错误: {e}")
             return []
     
-    def crawl_source(self, source_config: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """爬取单个来源"""
-        results = []
-        url_info = source_config
+    def _get_dynamic_html(self, url: str) -> str:
+        """使用 Selenium 获取 JavaScript 渲染的页面内容"""
+        if not SELENIUM_AVAILABLE:
+            print("❌ Selenium 未安装，请安装: pip install selenium webdriver-manager")
+            return ""
+        
+        html = ""
+        driver = None
         
         try:
-            response = self.session.get(url_info["url"], timeout=self.timeout)
-            response.encoding = response.apparent_encoding
+            # 配置 Chrome 选项
+            options = Options()
+            options.add_argument("--headless=new")  # 无头模式
+            options.add_argument("--disable-gpu")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--window-size=1920,1080")
+            options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             
-            if response.status_code == 200:
-                parser = self._get_parser(url_info["parser"])
-                items = parser(response.text)
-                
-                for item in items:
-                    item["crawl_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    results.append(item)
-            else:
-                print(f"请求失败 {url_info['url']}: {response.status_code}")
-                
-        except requests.RequestException as e:
-            print(f"爬取失败 {url_info['url']}: {e}")
+            # 创建驱动
+            driver = webdriver.Chrome(
+                service=Service(ChromeDriverManager().install()),
+                options=options
+            )
+            
+            # 访问页面
+            driver.set_page_load_timeout(self.timeout)
+            driver.get(url)
+            
+            # 等待 JavaScript 渲染（最多等待10秒）
+            time.sleep(5)
+            
+            # 获取渲染后的 HTML
+            html = driver.page_source
+            print(f"✅ 动态渲染成功: {url}")
+            
+        except Exception as e:
+            print(f"❌ 动态渲染失败 {url}: {e}")
+            html = ""
+        finally:
+            if driver:
+                driver.quit()
         
-        # 随机延迟，避免被封禁
-        time.sleep(random.uniform(1, 3))
+        return html
+
+    def crawl_source(self, source_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """爬取单个来源（支持 JavaScript 渲染，失败时自动回退）"""
+        results = []
+        url_info = source_config
+        url = url_info["url"]
+        requires_js = url_info.get("requires_js", False)
+        html = ""
+        
+        try:
+            # 判断是否需要 JavaScript 渲染
+            if requires_js and SELENIUM_AVAILABLE:
+                # 先尝试使用 Selenium 获取动态内容
+                html = self._get_dynamic_html(url)
+                
+                # 如果动态渲染失败，回退到普通 HTTP 请求
+                if not html:
+                    print(f"⏱️ 动态渲染失败，尝试普通请求 {url}")
+                    requires_js = False  # 标记为普通请求
+            
+            # 使用普通 HTTP 请求（包括回退情况）
+            if not html:
+                response = self.session.get(url, timeout=self.timeout)
+                response.encoding = response.apparent_encoding
+                
+                if response.status_code != 200:
+                    print(f"❌ 请求失败 {url}: HTTP {response.status_code}")
+                    return results
+                
+                html = response.text
+            
+            # 解析 HTML
+            parser = self._get_parser(url_info["parser"])
+            items = parser(html)
+            
+            for item in items:
+                item["crawl_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                item["source_url"] = url
+                item["dynamic"] = requires_js  # 标记是否为动态渲染
+                results.append(item)
+            
+            print(f"✅ 成功爬取 {url}: {len(results)} 条")
+            
+        except requests.exceptions.RequestException as e:
+            print(f"❌ 爬取失败 {url}: {e}")
+        except Exception as e:
+            print(f"❌ 爬取异常 {url}: {e}")
+        
         return results
     
     def crawl(self, categories: List[str] = None) -> List[Dict[str, Any]]:
