@@ -1,6 +1,8 @@
 # ==================== 爬虫依赖 ====================
 requests>=2.31.0
 beautifulsoup4>=4.12.2
+selenium>=4.17.0
+webdriver-manager>=4.0.1
 
 # ==================== RAG / 向量检索相关 ====================
 sentence-transformers>=2.2.2
