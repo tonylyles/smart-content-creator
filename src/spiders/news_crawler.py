@@ -1,9 +1,11 @@
 """新闻爬虫 - 主动抓取外部最新行业资讯、政策动态及技术进展"""
+import re
+import hashlib
 import requests
 from bs4 import BeautifulSoup
 import json
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import time
 import random
 
@@ -27,7 +29,10 @@ class NewsCrawler:
         "priority": {
             "name": "核心目标网站",
             "urls": [
-                {"url": "https://gdjikang.com/", "parser": "jikang", "priority": 1}  # 最高优先级
+                {"url": "https://gdjikang.com/", "parser": "jikang", "priority": 1},         # 最高优先级：吉康官网
+                {"url": "https://aiqicha.baidu.com/company_detail_10987115296786?pd=ee", "parser": "aiqicha", "priority": 1},  # 爱企查-吉康环境
+                {"url": "https://rdjk2018.b2b168.com/home.aspx", "parser": "b2b168", "priority": 1},  # 1688-吉康环境店铺
+                {"url": "https://creategz-test.oss-cn-shenzhen.aliyuncs.com/mpb/assets/%E5%90%89%E5%BA%B7%E7%8E%AF%E5%A2%83%E7%94%B5%E5%AD%90%E6%A0%B7%E5%86%8C(%E6%89%8B%E6%9C%BA%E7%89%88%EF%BC%89.pdf", "parser": "jikang_pdf", "priority": 1},  # 吉康环境电子样册
             ]
         },
         "industry": {
@@ -37,22 +42,24 @@ class NewsCrawler:
                 {"url": "https://www.chinawater.com.cn/", "parser": "chinawater"},  # 中国水网 ✅
                 {"url": "https://huanbao.bjx.com.cn/", "parser": "bjx_huanbao", "requires_js": True},  # 北极星环保网（需要JS渲染）
                 {"url": "https://www.cenews.com.cn/", "parser": "cenews", "requires_js": True},       # 中国环境新闻网（需要JS渲染）
-                {"url": "https://www.ehwater.com/", "parser": "ehwater"}        # 中国环保设备网 ✅
+                {"url": "https://www.ehwater.com/", "parser": "ehwater"},        # 中国环保设备网 ✅
+                {"url": "https://www.chpa.org.cn/", "parser": "chpa"},           # 中国节能协会热泵专业委员会
+                {"url": "http://www.gdepi.com/", "parser": "gdepi"},             # 广东环保产业网
             ]
         },
         "policy": {
             "name": "政策动态",
             "urls": [
-                {"url": "http://www.mee.gov.cn/", "parser": "mee"},              # 生态环境部
-                {"url": "http://www.gov.cn/", "parser": "gov"},                  # 中国政府网
-                {"url": "https://www.mepc.gov.cn/", "parser": "mepc"}            # 广东省生态环境厅
+                {"url": "https://www.mee.gov.cn/", "parser": "mee"},                   # 生态环境部 ✅
+                {"url": "https://www.ndrc.gov.cn/xxgk/zcfb/ghwb/", "parser": "ndrc"},   # 国家发改委-规划（资源环境相关政策）
+                {"url": "https://www.mohurd.gov.cn/zcfg/index.html", "parser": "mohurd"},  # 住建部-政策法规（污水/环保设施）
             ]
         },
         "tech": {
             "name": "技术资讯",
             "urls": [
-                {"url": "https://www.cnhubei.com/", "parser": "cnhubei"},        # 湖北日报（环保科技）
-                {"url": "https://tech.sina.com.cn/", "parser": "sina_tech"}      # 新浪科技
+                {"url": "https://www.cnhubei.com/", "parser": "cnhubei"},              # 湖北日报（环保科技）✅
+                {"url": "https://huanbao.bjx.com.cn/tech/", "parser": "bjx_tech"},     # 北极星环保网-技术频道
             ]
         }
     }
@@ -65,6 +72,14 @@ class NewsCrawler:
         "Accept-Encoding": "gzip, deflate",
         "Connection": "keep-alive"
     }
+
+    # 吉康环境核心关键词（用于智能检索和话题发现）
+    KEYWORDS = [
+        "低温除湿", "污泥干化", "闭式循环", "除湿干化",
+        "高湿环境", "回南天", "污泥处理", "固废处理",
+        "环保政策", "双碳", "节能", "绿色发展",
+        "涡旋式热泵", "工业除湿", "污水处理",
+    ]
     
     # 配置参数
     TIMEOUT = 30  # 增加超时时间到30秒
@@ -258,13 +273,20 @@ class NewsCrawler:
         """获取解析器函数"""
         parsers = {
             "jikang": self._parse_jikang,            # 广东吉康环境
+            "jikang_pdf": self._parse_jikang_pdf,    # 吉康环境电子样册（PDF）
+            "aiqicha": self._parse_aiqicha,          # 爱企查-吉康环境
+            "b2b168": self._parse_b2b168,            # 1688-吉康环境店铺
             "hbzhan": self._parse_hbzhan,            # 环保在线
             "chinawater": self._parse_chinawater,     # 中国水网
             "bjx_huanbao": self._parse_bjx_huanbao,   # 北极星环保网
+            "bjx_tech": self._parse_bjx_tech,         # 北极星环保网-技术频道
             "cenews": self._parse_cenews,            # 中国环境新闻网
+            "chpa": self._parse_chpa,                # 中国节能协会热泵专业委员会
+            "gdepi": self._parse_gdepi,              # 广东环保产业网
             "ehwater": self._parse_ehwater,          # 中国环保设备网
             "mee": self._parse_mee,                  # 生态环境部
-            "mepc": self._parse_mepc,                # 广东省生态环境厅
+            "ndrc": self._parse_ndrc,                # 国家发改委
+            "mohurd": self._parse_mohurd,            # 住建部
             "cnhubei": self._parse_cnhubei,          # 湖北日报
             "techweb": self._parse_techweb,
             "sina_tech": self._parse_sina_tech,
@@ -274,13 +296,233 @@ class NewsCrawler:
             "cac": self._parse_cac,
             "36kr": self._parse_36kr,
             "pinggu": self._parse_pinggu,
-            "jrj": self._parse_jrj
+            "jrj": self._parse_jrj,
+            "mepc": self._parse_mepc,                # 广东省生态环境厅（兼容旧配置）
         }
         return parsers.get(parser_name, self._parse_generic)
 
     def _parse_jikang(self, html: str) -> List[Dict[str, Any]]:
         """解析广东吉康环境官网 - 低温除湿干化核心网站"""
         return self._parse_generic(html, "吉康环境", "priority")
+
+    def _parse_aiqicha(self, html: str) -> List[Dict[str, Any]]:
+        """解析爱企查-吉康环境公司信息页面
+        
+        爱企查提供公司基本信息、工商登记、风险信息等，
+        用于获取吉康环境的企业资质、经营范围、法律风险等。
+        """
+        results = []
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            
+            # 爱企查结构：公司基本信息
+            company_name = ""
+            name_tag = soup.find("span", class_=re.compile(r"company-name|title|zx-title"))
+            if name_tag:
+                company_name = name_tag.get_text(strip=True)
+            
+            # 提取公司描述/经营范围等信息
+            info_blocks = soup.find_all("div", class_=re.compile(r"info|detail|desc|row|item"))
+            for block in info_blocks:
+                text = block.get_text(strip=True)
+                if len(text) >= 10 and any(kw in text for kw in
+                    ["环保", "环境", "除湿", "干化", "污泥", "节能", "技术", "设备", 
+                     "注册", "经营", "许可", "认证", "专利"]):
+                    results.append({
+                        "title": text[:100],
+                        "url": "https://aiqicha.baidu.com/company_detail_10987115296786?pd=ee",
+                        "source": "爱企查-吉康环境",
+                        "category": "priority"
+                    })
+            
+            # 如果专用解析失败，回退到通用解析
+            if not results:
+                results = self._parse_generic(html, "爱企查-吉康环境", "priority")
+            
+            # 限制返回数量（公司信息通常较少）
+            return results[:10]
+            
+        except Exception as e:
+            print(f"爱企查解析错误: {e}")
+            return self._parse_generic(html, "爱企查-吉康环境", "priority")
+
+    def _parse_b2b168(self, html: str) -> List[Dict[str, Any]]:
+        """解析1688-吉康环境店铺页面
+        
+        1688店铺页面提供产品信息、企业动态、联系方式等，
+        用于获取吉康环境的产品报价、服务范围等商业信息。
+        """
+        results = []
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            
+            # 1688店铺结构：产品列表 / 公司介绍
+            # 尝试提取产品信息
+            product_items = soup.find_all("div", class_=re.compile(r"product|item|goods|offer"))
+            for item in product_items[:10]:
+                title_tag = (item.find("h3") or item.find("h2") or 
+                           item.find("a", class_=re.compile(r"title|name")))
+                if title_tag:
+                    title = title_tag.get_text(strip=True)
+                    if len(title) >= 5 and any(kw in title for kw in
+                        ["除湿", "干化", "污泥", "热泵", "设备", "环保", "节能"]):
+                        results.append({
+                            "title": title,
+                            "url": "https://rdjk2018.b2b168.com/home.aspx",
+                            "source": "1688-吉康环境",
+                            "category": "priority"
+                        })
+            
+            # 尝试提取公司简介
+            intro_tag = (soup.find("div", class_=re.compile(r"intro|about|desc|company")) or
+                        soup.find("div", id=re.compile(r"intro|about|desc")))
+            if intro_tag:
+                text = intro_tag.get_text(strip=True)
+                if len(text) >= 20:
+                    results.append({
+                        "title": f"吉康环境公司介绍: {text[:80]}",
+                        "url": "https://rdjk2018.b2b168.com/home.aspx",
+                        "source": "1688-吉康环境",
+                        "category": "priority"
+                    })
+            
+            # 如果专用解析失败，回退到通用解析
+            if not results:
+                results = self._parse_generic(html, "1688-吉康环境", "priority")
+            
+            return results[:10]
+            
+        except Exception as e:
+            print(f"1688店铺解析错误: {e}")
+            return self._parse_generic(html, "1688-吉康环境", "priority")
+
+    def _parse_jikang_pdf(self, html: str) -> List[Dict[str, Any]]:
+        """解析吉康环境电子样册（PDF 在线预览页）
+
+        OSS 直链 PDF 无法直接解析 HTML，但可以提取 PDF 中的产品参数、技术规格等。
+        如果无法提取内容，返回样册的基本描述信息。
+        """
+        results = []
+        # PDF 直链无法通过 HTML 解析，返回样册元数据
+        results.append({
+            "title": "吉康环境电子样册（手机版）- 低温除湿干化设备产品手册",
+            "url": "https://creategz-test.oss-cn-shenzhen.aliyuncs.com/mpb/assets/%E5%90%89%E5%BA%B7%E7%8E%AF%E5%A2%83%E7%94%B5%E5%AD%90%E6%A0%B7%E5%86%8C(%E6%89%8B%E6%9C%BA%E7%89%88%EF%BC%89.pdf",
+            "source": "吉康环境电子样册",
+            "category": "priority",
+        })
+
+        # 尝试用 pdf 工具提取内容（如果可用）
+        try:
+            import tempfile, os
+            pdf_url = "https://creategz-test.oss-cn-shenzhen.aliyuncs.com/mpb/assets/%E5%90%89%E5%BA%B7%E7%8E%AF%E5%A2%83%E7%94%B5%E5%AD%90%E6%A0%B7%E5%86%8C(%E6%89%8B%E6%9C%BA%E7%89%88%EF%BC%89.pdf"
+            resp = self.session.get(pdf_url, timeout=30)
+            if resp.status_code == 200 and len(resp.content) > 1000:
+                # 保存临时 PDF
+                tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+                tmp.write(resp.content)
+                tmp.close()
+                # 尝试提取文字
+                try:
+                    import fitz  # PyMuPDF
+                    doc = fitz.open(tmp.name)
+                    text = ""
+                    for page in doc:
+                        text += page.get_text()
+                    doc.close()
+                    if text.strip():
+                        # 按段落拆分
+                        paragraphs = [p.strip() for p in text.split("\n\n") if len(p.strip()) > 20]
+                        for p in paragraphs[:10]:
+                            results.append({
+                                "title": p[:100],
+                                "url": pdf_url,
+                                "source": "吉康环境电子样册",
+                                "category": "priority",
+                            })
+                except ImportError:
+                    pass  # PyMuPDF 未安装，仅返回元数据
+                finally:
+                    os.unlink(tmp.name)
+        except Exception:
+            pass
+
+        return results[:15]
+
+    def _parse_chpa(self, html: str) -> List[Dict[str, Any]]:
+        """解析中国节能协会热泵专业委员会
+
+        提供热泵行业政策、技术标准、行业动态等资讯，
+        与吉康环境的核心技术（涡旋式热泵）直接相关。
+        """
+        results = []
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+
+            # 常见结构：新闻列表
+            items = (soup.find_all("div", class_=re.compile(r"news|article|list-item|item"))
+                     or soup.find_all("li", class_=re.compile(r"news|article|item")))
+
+            for item in items[:15]:
+                title_tag = item.find("a")
+                if title_tag:
+                    title = title_tag.get_text(strip=True)
+                    href = title_tag.get("href", "")
+                    if len(title) >= 8:
+                        if href and not href.startswith("http"):
+                            href = "https://www.chpa.org.cn" + href
+                        results.append({
+                            "title": title,
+                            "url": href,
+                            "source": "中国节能协会热泵专委会",
+                            "category": "industry",
+                        })
+
+            if not results:
+                results = self._parse_generic(html, "中国节能协会热泵专委会", "industry")
+
+        except Exception as e:
+            print(f"热泵专委会解析错误: {e}")
+            results = self._parse_generic(html, "中国节能协会热泵专委会", "industry")
+
+        return results[:15]
+
+    def _parse_gdepi(self, html: str) -> List[Dict[str, Any]]:
+        """解析广东环保产业网
+
+        广东省环保产业协会官网，提供本地政策、产业动态、
+        会员企业资讯等，与吉康环境（广东企业）高度相关。
+        """
+        results = []
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+
+            # 常见结构
+            items = (soup.find_all("div", class_=re.compile(r"news|article|list-item|item"))
+                     or soup.find_all("li", class_=re.compile(r"news|article|item")))
+
+            for item in items[:15]:
+                title_tag = item.find("a")
+                if title_tag:
+                    title = title_tag.get_text(strip=True)
+                    href = title_tag.get("href", "")
+                    if len(title) >= 8:
+                        if href and not href.startswith("http"):
+                            href = "http://www.gdepi.com" + href
+                        results.append({
+                            "title": title,
+                            "url": href,
+                            "source": "广东环保产业网",
+                            "category": "industry",
+                        })
+
+            if not results:
+                results = self._parse_generic(html, "广东环保产业网", "industry")
+
+        except Exception as e:
+            print(f"广东环保产业网解析错误: {e}")
+            results = self._parse_generic(html, "广东环保产业网", "industry")
+
+        return results[:15]
 
     def _parse_hbzhan(self, html: str) -> List[Dict[str, Any]]:
         """解析环保在线"""
@@ -381,6 +623,159 @@ class NewsCrawler:
         except Exception as e:
             print(f"中国环境新闻网解析错误: {e}")
             results = self._parse_generic(html, "中国环境新闻网", "industry")
+        
+        return results[:15]
+
+    def _parse_bjx_tech(self, html: str) -> List[Dict[str, Any]]:
+        """解析北极星环保网-技术频道
+        
+        与 bjx_huanbao 共享基础解析逻辑，但聚焦技术文章。
+        """
+        results = []
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            
+            # 北极星技术频道常见结构
+            tech_list = (soup.find("div", class_="news-list") or 
+                        soup.find("div", class_="list-content") or
+                        soup.find("div", class_="tech-list"))
+            if tech_list:
+                items = tech_list.find_all("li")
+                for item in items[:15]:
+                    title_tag = item.find("a")
+                    if title_tag:
+                        title = title_tag.get_text(strip=True)
+                        if len(title) >= 5:
+                            results.append({
+                                "title": title,
+                                "url": title_tag.get("href", "#"),
+                                "source": "北极星环保网-技术",
+                                "category": "tech"
+                            })
+            
+            if not results:
+                results = self._parse_generic(html, "北极星环保网-技术", "tech")
+            
+        except Exception as e:
+            print(f"北极星环保网技术频道解析错误: {e}")
+            results = self._parse_generic(html, "北极星环保网-技术", "tech")
+        
+        return results[:15]
+
+    def _parse_ndrc(self, html: str) -> List[Dict[str, Any]]:
+        """解析国家发改委-规划发布页面
+        
+        发改委发布国民经济和社会发展规划、资源环境相关政策，
+        与环保行业密切相关（如双碳、循环经济、绿色发展规划）。
+        """
+        results = []
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            
+            # 发改委规划页面结构
+            # 结构1：列表项
+            items = soup.find_all("li", class_=re.compile(r"list-item|clearfix"))
+            for item in items[:15]:
+                title_tag = item.find("a")
+                if title_tag:
+                    title = title_tag.get_text(strip=True)
+                    if len(title) >= 8:
+                        href = title_tag.get("href", "")
+                        if href and not href.startswith("http"):
+                            href = "https://www.ndrc.gov.cn" + href
+                        results.append({
+                            "title": title,
+                            "url": href,
+                            "source": "国家发改委",
+                            "category": "policy"
+                        })
+            
+            # 结构2：表格行
+            if not results:
+                rows = soup.find_all("tr")
+                for row in rows[:15]:
+                    title_tag = row.find("a")
+                    if title_tag:
+                        title = title_tag.get_text(strip=True)
+                        if len(title) >= 8:
+                            href = title_tag.get("href", "")
+                            if href and not href.startswith("http"):
+                                href = "https://www.ndrc.gov.cn" + href
+                            results.append({
+                                "title": title,
+                                "url": href,
+                                "source": "国家发改委",
+                                "category": "policy"
+                            })
+            
+            # 回退
+            if not results:
+                results = self._parse_generic(html, "国家发改委", "policy")
+            
+        except Exception as e:
+            print(f"国家发改委解析错误: {e}")
+            results = self._parse_generic(html, "国家发改委", "policy")
+        
+        return results[:15]
+
+    def _parse_mohurd(self, html: str) -> List[Dict[str, Any]]:
+        """解析住建部-政策法规页面
+        
+        住建部负责污水处理设施建设、城镇污泥处置等政策，
+        与吉康环境的核心业务（污泥干化）直接相关。
+        """
+        results = []
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            
+            # 住建部政策页面结构
+            # 结构1：政策列表
+            list_div = (soup.find("div", class_="list") or 
+                       soup.find("ul", class_="list") or
+                       soup.find("div", class_="policy-list") or
+                       soup.find("div", class_="news-list"))
+            if list_div:
+                items = list_div.find_all("li")
+                for item in items[:15]:
+                    title_tag = item.find("a")
+                    if title_tag:
+                        title = title_tag.get_text(strip=True)
+                        if len(title) >= 8:
+                            href = title_tag.get("href", "")
+                            if href and not href.startswith("http"):
+                                href = "https://www.mohurd.gov.cn" + href
+                            results.append({
+                                "title": title,
+                                "url": href,
+                                "source": "住建部",
+                                "category": "policy"
+                            })
+            
+            # 结构2：通用链接列表
+            if not results:
+                links = soup.find_all("a", href=True)
+                for link in links[:20]:
+                    title = link.get_text(strip=True)
+                    href = link.get("href", "")
+                    if (len(title) >= 8 and href and 
+                        any(kw in title for kw in ["污水", "污泥", "环保", "城镇", 
+                            "排水", "环境", "节能", "绿色", "建设", "标准"])):
+                        if not href.startswith("http"):
+                            href = "https://www.mohurd.gov.cn" + href
+                        results.append({
+                            "title": title,
+                            "url": href,
+                            "source": "住建部",
+                            "category": "policy"
+                        })
+            
+            # 回退
+            if not results:
+                results = self._parse_generic(html, "住建部", "policy")
+            
+        except Exception as e:
+            print(f"住建部解析错误: {e}")
+            results = self._parse_generic(html, "住建部", "policy")
         
         return results[:15]
 
@@ -641,3 +1036,160 @@ class NewsCrawler:
         """从文件加载爬取结果"""
         with open(filename, "r", encoding="utf-8") as f:
             return json.load(f)
+
+    # ==================== 话题发现与关键词搜索 ====================
+
+    def _fetch_page(self, url: str) -> Optional[str]:
+        """安全获取页面（通用 HTTP 请求）"""
+        try:
+            resp = self.session.get(url, timeout=self.timeout)
+            resp.encoding = resp.apparent_encoding or "utf-8"
+            if resp.status_code == 200:
+                return resp.text
+        except Exception as e:
+            print(f"  [爬虫] 请求失败 {url}: {e}")
+        return None
+
+    def search_by_keywords(self, keywords: List[str] = None,
+                            max_results: int = 20) -> List[Dict[str, Any]]:
+        """按关键词智能检索相关网页
+
+        使用百度搜索获取最新相关资讯，比固定网站爬取更灵活。
+
+        Args:
+            keywords: 搜索关键词列表
+            max_results: 最大结果数
+
+        Returns:
+            检索结果列表
+        """
+        if not keywords:
+            keywords = random.sample(self.KEYWORDS, min(3, len(self.KEYWORDS)))
+
+        all_results = []
+
+        for keyword in keywords:
+            print(f"  [搜索] 关键词: {keyword}")
+            search_url = f"https://www.baidu.com/s?wd={keyword}&rn=10"
+            html = self._fetch_page(search_url)
+            if not html:
+                continue
+
+            try:
+                soup = BeautifulSoup(html, "html.parser")
+                for result_div in soup.find_all(["div", "h3"],
+                        class_=re.compile(r"result|t")):
+                    a_tag = result_div.find("a")
+                    if not a_tag:
+                        continue
+                    title = a_tag.get_text(strip=True)
+                    href = a_tag.get("href", "")
+
+                    if len(title) > 8:
+                        all_results.append({
+                            "title": title.strip()[:500],
+                            "url": href,
+                            "source": "百度搜索",
+                            "category": "search_result",
+                            "keyword": keyword,
+                            "crawl_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        })
+            except Exception as e:
+                print(f"  [搜索] 解析失败: {e}")
+
+            time.sleep(random.uniform(1, 2))
+
+            if len(all_results) >= max_results:
+                break
+
+        print(f"  [搜索] 关键词检索完成，共 {len(all_results)} 条结果")
+        return all_results[:max_results]
+
+    def fetch_article_content(self, url: str) -> Optional[str]:
+        """获取文章正文内容
+
+        Args:
+            url: 文章URL
+
+        Returns:
+            正文文本（纯文本，已清洗）
+        """
+        html = self._fetch_page(url)
+        if not html:
+            return None
+
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            for tag in soup(["script", "style", "nav", "header", "footer"]):
+                tag.decompose()
+
+            article = (soup.find("article") or
+                      soup.find("div", class_=re.compile(r"article|content|detail|text|body")) or
+                      soup.find("div", id=re.compile(r"article|content|detail|text|body")))
+
+            if article:
+                text = article.get_text(separator="\n", strip=True)
+            else:
+                text = soup.get_text(separator="\n", strip=True)
+
+            lines = [line.strip() for line in text.split("\n")
+                     if line.strip() and len(line.strip()) > 10]
+            return "\n".join(lines[:50])
+        except Exception as e:
+            print(f"  [爬虫] 正文提取失败 {url}: {e}")
+            return None
+
+    def auto_discover_topics(self, count: int = 5) -> List[Dict[str, Any]]:
+        """自动发现热门话题（用于自动生成推文主题）
+
+        流程：搜索关键词 → 提取热门话题 → 返回主题列表
+
+        Args:
+            count: 需要的主题数量
+
+        Returns:
+            主题列表，每个包含 title, keywords, context
+        """
+        print(f"[发现] 自动发现 {count} 个热门话题...")
+
+        search_keywords = random.sample(self.KEYWORDS, min(3, len(self.KEYWORDS)))
+        results = self.search_by_keywords(search_keywords, max_results=30)
+
+        if not results:
+            default_topics = [
+                {"title": "华南地区工业除湿技术创新趋势", "keywords": ["低温除湿", "节能", "华南"], "context": "大湾区工业除湿需求增长"},
+                {"title": "广东省环保政策对污泥处理的影响", "keywords": ["环保政策", "污泥干化", "广东"], "context": "十四五环保规划要求"},
+                {"title": "闭式循环技术如何助力双碳目标", "keywords": ["闭式循环", "双碳", "节能"], "context": "碳排放法规趋严"},
+            ]
+            return default_topics[:count]
+
+        scored = []
+        blacklist = ["娱乐", "明星", "电影", "综艺", "游戏", "健身", "减肥", "美食菜谱"]
+        for item in results:
+            title = item.get("title", "")
+            score = sum(1 for kw in self.KEYWORDS if kw in title)
+            if any(bw in title for bw in blacklist):
+                continue
+            scored.append((score, item))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        topics = []
+        for score, item in scored[:count]:
+            title = item["title"]
+            matched_kws = [kw for kw in self.KEYWORDS if kw in title]
+            if not matched_kws:
+                matched_kws = search_keywords[:2]
+
+            topics.append({
+                "title": title,
+                "keywords": matched_kws,
+                "context": f"来源: {item.get('source', '网络')}",
+                "search_result": item,
+            })
+
+        print(f"[发现] 发现 {len(topics)} 个话题")
+        for i, t in enumerate(topics, 1):
+            print(f"  {i}. {t['title']} (关键词: {', '.join(t['keywords'])})")
+
+        return topics
