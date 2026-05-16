@@ -44,8 +44,8 @@ def auto_generate_and_publish(topic: str = None, keywords: list = None,
     if not topic:
         print("\n🔍 未指定话题，自动发现中...")
         try:
-            from src.spiders.eco_crawler import EcoNewsCrawler
-            crawler = EcoNewsCrawler()
+            from src.spiders.news_crawler import NewsCrawler
+            crawler = NewsCrawler()
             topics = crawler.auto_discover_topics(count=3)
             if topics:
                 chosen = topics[0]
@@ -184,8 +184,8 @@ if __name__ == "__main__":
     if args.discover:
         # 仅发现话题
         try:
-            from src.spiders.eco_crawler import EcoNewsCrawler
-            crawler = EcoNewsCrawler()
+            from src.spiders.news_crawler import NewsCrawler
+            crawler = NewsCrawler()
             topics = crawler.auto_discover_topics(count=5)
             print(f"\n🎯 发现的话题:")
             for i, t in enumerate(topics, 1):

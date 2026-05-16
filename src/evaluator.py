@@ -9,9 +9,20 @@
 - 修改建议生成器
 - LLM/规则引擎双模式
 - 三级审核支持
+- quality/ 子模块集成（术语校验、逻辑分析、可读性、建议生成）
 """
 import re
 from typing import Optional, List
+
+# 尝试导入 quality/ 子模块（增强评估）
+try:
+    from src.quality.term_checker import TermChecker
+    from src.quality.logic_analyzer import LogicAnalyzer
+    from src.quality.readability_eval import ReadabilityEvaluator
+    from src.quality.suggestion_engine import SuggestionEngine
+    _QUALITY_AVAILABLE = True
+except ImportError:
+    _QUALITY_AVAILABLE = False
 
 
 # 合规违禁词库
@@ -226,6 +237,10 @@ class Evaluator:
         # --- 专业性（新增）---
         scores["professionalism_score"] += self._calc_professionalism(content, scene_type)
 
+        # --- quality/ 子模块增强（如果可用）---
+        if _QUALITY_AVAILABLE:
+            scores = self._quality_enhance(scores, title, content, scene_type)
+
         # 限制范围
         for k in scores:
             scores[k] = round(min(1.0, max(0.0, scores[k])), 2)
@@ -392,6 +407,67 @@ class Evaluator:
 
         return max(-0.05, min(0.15, bonus))
 
+    def _quality_enhance(self, scores, title, content, scene_type):
+        """使用 quality/ 子模块增强评估结果
+
+        如果 quality/ 模块可用，调用术语校验、逻辑分析、可读性评估、建议引擎，
+        将结果合并到 scores 字典中。
+
+        Args:
+            scores: 当前评估得分字典
+            title: 文章标题
+            content: 文章内容
+            scene_type: 场景类型
+
+        Returns:
+            dict: 增强后的评估得分字典
+        """
+        try:
+            # 术语校验
+            tc = TermChecker()
+            term_result = tc.check(content)
+            if isinstance(term_result, dict):
+                term_score = term_result.get("accuracy", term_result.get("score", None))
+                if term_score is not None and isinstance(term_score, (int, float)):
+                    # quality 模块用 0-100 分，转换为 0-1
+                    normalized = min(1.0, term_score / 100.0)
+                    scores["accuracy_score"] = round((scores["accuracy_score"] + normalized) / 2, 2)
+
+            # 逻辑分析
+            la = LogicAnalyzer()
+            logic_result = la.analyze(content)
+            if isinstance(logic_result, dict):
+                logic_score = logic_result.get("consistency", logic_result.get("score", None))
+                if logic_score is not None and isinstance(logic_score, (int, float)):
+                    normalized = min(1.0, logic_score / 100.0) if logic_score > 1 else logic_score
+                    # 逻辑分数影响专业性
+                    scores["professionalism_score"] = round(
+                        (scores["professionalism_score"] + normalized) / 2, 2
+                    )
+
+            # 可读性评估
+            re_eval = ReadabilityEvaluator()
+            read_result = re_eval.evaluate(content)
+            if isinstance(read_result, dict):
+                read_score = read_result.get("overall", read_result.get("score", None))
+                if read_score is not None and isinstance(read_score, (int, float)):
+                    normalized = min(1.0, read_score / 100.0) if read_score > 1 else read_score
+                    scores["readability_score"] = round(
+                        (scores["readability_score"] + normalized) / 2, 2
+                    )
+
+            # 建议引擎（结果将在 _generate_suggestions 中合并）
+            se = SuggestionEngine()
+            quality_suggestions = se.generate_suggestions(scores, content)
+            if quality_suggestions and isinstance(quality_suggestions, list):
+                # 暂存到 scores，后面 _generate_suggestions 会合并
+                scores["_quality_suggestions"] = quality_suggestions
+
+        except Exception:
+            pass  # quality 模块调用失败不影响主评估
+
+        return scores
+
     def _generate_suggestions(self, scores, compliance, content, scene_type):
         """生成具体修改建议.
 
@@ -462,6 +538,15 @@ class Evaluator:
         # 如果各项都好
         if not suggestions:
             suggestions.append("内容质量良好，无需修改")
+
+        # 合并 quality/ 子模块的建议
+        quality_sugs = scores.pop("_quality_suggestions", None)
+        if quality_sugs:
+            for qs in quality_sugs:
+                if isinstance(qs, str) and qs not in suggestions:
+                    suggestions.append(qs)
+                elif isinstance(qs, dict) and qs.get("text"):
+                    suggestions.append(qs["text"])
 
         return suggestions
 

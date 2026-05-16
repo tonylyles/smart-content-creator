@@ -1,4 +1,4 @@
-﻿"""知识库管理 - 胡圳刚负责"""
+"""知识库管理 - 胡圳刚负责"""
 import os
 import json
 from typing import List, Dict, Any, Optional

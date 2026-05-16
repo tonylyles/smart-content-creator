@@ -579,9 +579,9 @@ if __name__ == "__main__":
     print("  🔍 自动话题发现演示")
     print("=" * 60)
     try:
-        from src.spiders.eco_crawler import EcoNewsCrawler
-        eco_crawler = EcoNewsCrawler()
-        topics = eco_crawler.auto_discover_topics(count=3)
+        from src.spiders.news_crawler import NewsCrawler
+        crawler = NewsCrawler()
+        topics = crawler.auto_discover_topics(count=3)
         print(f"\n🎯 发现 {len(topics)} 个可创作话题:")
         for i, t in enumerate(topics, 1):
             print(f"  {i}. {t['title']}")
