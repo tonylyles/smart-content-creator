@@ -92,11 +92,19 @@ class ContentGenerator:
         start_time = time.time()
         keywords = keywords or ["环保", "绿色发展"]
 
+        # 应用场景业务规则（如 industrial_humidity_solution）
+        (content_type, keywords, custom_instructions,
+         content_type_hint, tone, target_audience) = self._apply_business_rules(
+            topic, content_type, scene_type, keywords, custom_instructions,
+        )
+
         llm = self._get_llm()
         if llm:
             markdown_content = self._generate_with_llm(
                 topic, context, content_type, scene_type,
                 keywords, custom_instructions, reference, timeline,
+                content_type_hint=content_type_hint, tone=tone,
+                target_audience=target_audience,
             )
         else:
             markdown_content = self._generate_from_template(
@@ -169,10 +177,81 @@ class ContentGenerator:
             results.append(result)
         return results
 
+    # ==================== 业务规则 ====================
+
+    def _apply_business_rules(self, topic, content_type, scene_type,
+                              keywords, custom_instructions):
+        """应用场景业务规则，根据场景类型自动调整生成参数.
+
+        适用于特定解决方案场景（如 industrial_humidity_solution），
+        自动注入地理策略、时间策略、内容类型提示等业务规则。
+
+        Args:
+            topic: 文章标题.
+            content_type: 原始内容类型.
+            scene_type: 场景类型.
+            keywords: 原始关键词.
+            custom_instructions: 原始自定义指令.
+
+        Returns:
+            tuple: (adjusted_content_type, adjusted_keywords,
+                    adjusted_custom_instructions, content_type_hint,
+                    tone, target_audience)
+        """
+        content_type_hint = None
+        tone = None
+        target_audience = None
+
+        if scene_type == "industrial_humidity_solution":
+            # === 地理策略：根据关键词注入地域相关信息 ===
+            geo_keywords = {
+                "广东": ["广东地区高温高湿气候特点", "广东环保法规要求"],
+                "华东": ["华东地区梅雨季湿度挑战", "长三角环保标准"],
+                "北方": ["北方地区冬季干燥采暖需求", "北方工业区环保要求"],
+                "西南": ["西南地区高湿环境治理", "川渝环保政策"],
+            }
+            extra_kw = []
+            for region, region_kw in geo_keywords.items():
+                if region in str(topic) or region in str(keywords):
+                    extra_kw.extend(region_kw)
+                    break
+            keywords = list(keywords or []) + extra_kw
+
+            # === 时间策略：根据当前月份调整 ===
+            month = datetime.now().month
+            if month in (3, 4, 5):
+                season_hint = "当前正值春夏交替，回南天/梅雨季将至，湿度控制需求旺盛"
+            elif month in (6, 7, 8):
+                season_hint = "当前为夏季高温高湿期，工业除湿需求达到峰值"
+            elif month in (9, 10, 11):
+                season_hint = "当前为秋季干燥期，但部分工业场景仍需精确控湿"
+            else:
+                season_hint = "当前为冬季，部分北方工业区需兼顾采暖与湿度控制"
+            extra_instructions = f"\n[季节背景] {season_hint}。"
+
+            # === 内容类型提示 ===
+            content_type_hint = "technical_analysis"
+            tone = "professional_and_insightful"
+            target_audience = "工业环保工程师、企业EHS负责人"
+
+            # 确保关键词包含核心术语
+            core_terms = ["湿度控制", "节能降耗", "恒温恒湿"]
+            for term in core_terms:
+                if term not in keywords:
+                    keywords.append(term)
+
+            # 组装自定义指令
+            custom_instructions = (custom_instructions or "") + extra_instructions
+
+        return (content_type, keywords, custom_instructions,
+                content_type_hint, tone, target_audience)
+
     # ==================== LLM 生成 ====================
 
     def _generate_with_llm(self, topic, context, content_type, scene_type,
-                           keywords, custom_instructions, reference, timeline):
+                           keywords, custom_instructions, reference, timeline,
+                           content_type_hint=None, tone=None,
+                           target_audience=None):
         """使用LLM生成内容.
 
         Args:
@@ -184,6 +263,9 @@ class ContentGenerator:
             custom_instructions: 额外指令.
             reference: RAG参考知识.
             timeline: 时间节点列表.
+            content_type_hint: 内容类型提示（由业务规则注入）.
+            tone: 写作语气（由业务规则注入）.
+            target_audience: 目标受众（由业务规则注入）.
 
         Returns:
             str: 生成的Markdown内容.
@@ -192,6 +274,8 @@ class ContentGenerator:
         prompts = self.prompt_engine.build_prompt(
             topic, context, content_type, scene_type,
             keywords, custom_instructions, reference, timeline,
+            content_type_hint=content_type_hint, tone=tone,
+            target_audience=target_audience,
         )
         response = self._get_llm().invoke([
             SystemMessage(content=prompts["system_prompt"]),

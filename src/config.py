@@ -17,14 +17,14 @@ from typing import Dict, Any
 GLOBAL_CONFIG: Dict[str, Any] = {
     # ---------- LLM / 生成器配置 ----------
     "llm": {
-        "model": "gpt-4",                       # 默认大模型
+        "model": "deepseek-v4-flash",                   # DeepSeek 模型（通过 base_url 路由）
         "api_key": "",                           # 从 .env 读取，留空则走模板模式
-        "base_url": "https://api.openai.com/v1",  # 可替换为国内中转地址
+        "base_url": "https://api.deepseek.com/v1",  # DeepSeek API 地址
         "max_tokens": 4096,
         "temperature": 0.7,
     },
     "generator": {
-        "model": "gpt-4",
+        "model": "deepseek-v4-flash",
         "temperature": 0.7,
         "max_tokens": 4096,
         "default_content_type": "article",       # 默认内容类型
@@ -184,10 +184,21 @@ def _load_env_overrides(config: dict):
         config["llm"]["api_key"] = env_key
         config["generator"]["api_key"] = env_key
 
+    # LLM Base URL
+    env_base = os.getenv("LLM_BASE_URL")
+    if env_base:
+        config["llm"]["base_url"] = env_base
+        config["generator"]["base_url"] = env_base
+
     # 向量数据库地址
     env_db = os.getenv("VECTOR_DB_URL")
     if env_db:
         config["rag"]["vector_db_url"] = env_db
+
+    # LLM Base URL（支持 DeepSeek 等国内中转）
+    env_base = os.getenv("LLM_BASE_URL")
+    if env_base:
+        config["llm"]["base_url"] = env_base
 
 
 def get_config_section(config: dict, section: str, default=None):

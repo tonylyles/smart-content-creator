@@ -24,6 +24,12 @@ SCENE_CONFIG = {
         "style": "技术导向、数据驱动、注重经济效益和合规要求",
         "terms": "废气治理、废水零排放、VOCs治理、危废处置、清洁生产",
     },
+    "industrial_humidity_solution": {
+        "name": "工业湿度解决方案",
+        "audience": "工业环保工程师、企业EHS负责人、设备采购决策者",
+        "style": "技术导向、数据驱动、注重经济效益和合规要求，强调湿度控制方案的技术细节和节能效果",
+        "terms": "湿度控制、恒温恒湿、转轮除湿、新风系统、VOCs治理、节能降耗、温湿度监测",
+    },
 }
 
 # ==================== 内容类型模板 ====================
@@ -180,7 +186,9 @@ class PromptEngine:
     def build_prompt(self, topic, context=None, content_type="article",
                      scene_type="municipal", keywords=None,
                      custom_instructions=None, reference=None,
-                     timeline=None):
+                     timeline=None,
+                     content_type_hint=None, tone=None,
+                     target_audience=None):
         """构建完整提示词.
 
         Args:
@@ -188,11 +196,18 @@ class PromptEngine:
             context: 上下文信息（兼容旧接口）.
             content_type: 内容类型，可选值：
                 article/battle_report/policy_analysis/tech_trend/news_digest.
-            scene_type: 场景类型，可选值：municipal/industrial.
+            scene_type: 场景类型，可选值：
+                municipal/industrial/industrial_humidity_solution.
             keywords: 关键词列表.
             custom_instructions: 额外指令.
             reference: RAG检索到的参考知识.
             timeline: 时间节点列表，格式为 [{"phase": str, "deadline": str}].
+            content_type_hint: 内容类型提示（如 "technical_analysis"），
+                会覆盖默认的 content_type 映射.
+            tone: 写作语气（如 "professional_and_insightful"），
+                会覆盖用户偏好设置.
+            target_audience: 目标受众（如 "环保工程师"），
+                会覆盖场景默认受众.
 
         Returns:
             dict: {"system_prompt": str, "user_prompt": str,
@@ -205,21 +220,30 @@ class PromptEngine:
             scene_type = self.user_preferences["default_scene"]
 
         scene = SCENE_CONFIG.get(scene_type, SCENE_CONFIG["municipal"])
+
+        # content_type_hint: 允许外部覆盖 content_type 逻辑
+        if content_type_hint:
+            content_type = content_type_hint
+
         type_info = TYPE_TEMPLATES.get(content_type, TYPE_TEMPLATES["article"])
         kw = "、".join(keywords) if keywords else "环保、绿色发展"
 
-        # 根据用户偏好调整语调
-        tone = self.user_preferences.get("tone", "professional")
+        # 根据用户偏好调整语调（允许外部参数覆盖）
+        if tone is None:
+            tone = self.user_preferences.get("tone", "professional")
         tone_instruction = ""
         if tone == "casual":
             tone_instruction = "语言风格偏向轻松易读，减少专业术语堆砌。"
         elif tone == "technical":
             tone_instruction = "语言风格偏向技术深度，多使用专业术语和数据支撑。"
+        elif tone == "professional_and_insightful":
+            tone_instruction = "语言风格专业且富有洞察力，兼顾技术深度与行业前瞻性。"
 
         # 构建系统提示词
+        audience = target_audience if target_audience else scene["audience"]
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             scene_name=scene["name"],
-            audience=scene["audience"],
+            audience=audience,
             style=scene["style"],
             terms=scene["terms"],
         )
