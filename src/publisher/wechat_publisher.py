@@ -14,7 +14,7 @@
 - Jinja2 模板（微信排版适配）
 - SQLite（发布日志）
 
-赛题要求：
+功能要求：
 - 自动生成适配公众号发布的图文推文（含标题、正文、配图建议）
 - 定时任务调度与自动触发技术：实现规定时间节点精准生成推文
 - 性能指标：全流程 ≤ 30 分钟，触发准确率 ≥ 98%
@@ -323,14 +323,14 @@ class WeChatPublisher:
     - browser: Selenium + Chrome 精准操控微信公众号后台
     - simulation: 本地模拟，生成可预览 HTML 文件用于演示
 
-    赛题要求覆盖：
+    功能覆盖：
     - [x] 适配公众号发布的图文推文（含标题、正文、配图建议）
     - [x] 排版适配（内联样式、响应式、品牌调性）
     - [x] 发布日志与统计
     """
 
-    CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-    PROFILE_DIR = r"C:\Users\ZhuanZ1\chrome_wechat_profile"
+    CHROME_PATH = os.environ.get("CHROME_PATH", r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+    PROFILE_DIR = os.environ.get("WECHAT_CHROME_PROFILE", os.path.join(os.path.expanduser("~"), "chrome_wechat_profile"))
     MP_URL = "https://mp.weixin.qq.com/"
     EDIT_URL = "https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit&action=edit&type=77"
 

@@ -398,7 +398,7 @@ class WorkflowEngine:
     def _apply_business_rules(self, data: dict) -> dict:
         """业务规则处理器（吉康环境·工业B2B定制版）
 
-        结合赛题要求与真实时空环境，将"地点+时间"转化为精准的"营销策略"。
+        结合业务需求与真实时空环境，将"地点+时间"转化为精准的"营销策略"。
         让系统具备工业级的时空感知能力。
         """
         from datetime import datetime as dt
@@ -431,7 +431,7 @@ class WorkflowEngine:
 
         # --- 1. 地理环境策略（广州 -> 湿度痛点 -> 强推除湿技术）---
         # 逻辑：广州/广东地区在5月正值"龙舟水"或"回南天"高发期，湿度极大
-        # 对应赛题：高端装备制造 -> 解决高湿环境下的污泥干化难题
+        # 对应场景：高端装备制造 -> 解决高湿环境下的污泥干化难题
         is_south_china = any(kw in location for kw in ["广州", "广东", "深圳", "佛山", "东莞", "珠海", "惠州", "中山", "大湾区"])
         if is_south_china:
             # 扩展关键词列表，覆盖环境、痛点和技术方向
@@ -445,7 +445,7 @@ class WorkflowEngine:
 
         # --- 2. 时间策略（5月8日 周五 -> 决策者阅读习惯）---
         # 逻辑：B2B客户（厂长/工程师）习惯在周五下午或周末阅读深度技术干货
-        # 对应赛题：企业公众号智能创作 -> 兼顾品牌调性与内容多样性
+        # 对应场景：企业公众号智能创作 -> 兼顾品牌调性与内容多样性
         try:
             # 优先用 current_date 解析，其次用 current_day
             date_obj = dt.strptime(current_date, "%Y-%m-%d")
@@ -468,7 +468,7 @@ class WorkflowEngine:
             date_display = current_date if current_date != "2026-05-08" else f"{current_date} (周五)"
             print(f"[业务规则] 📅 检测到时间: {date_display}，触发【技术干货/政策解读】内容模式")
 
-        # --- 3. 赛题合规性兜底（确保输出字段完整）---
+        # --- 3. 合规性兜底（确保输出字段完整）---
         required_fields = {
             "content_type": "article",
             "keywords": ["环保", "绿色发展"],

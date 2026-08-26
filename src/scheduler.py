@@ -2,7 +2,7 @@
 核心调度引擎 - 曾睿负责
 
 基于 APScheduler 3.x 的智能内容创作调度系统。
-实现赛题硬性要求：按时间节点自动触发内容生成。
+实现核心功能：按时间节点自动触发内容生成。
 
 功能：
 - BackgroundScheduler 后台调度（不阻塞主线程）
@@ -86,7 +86,7 @@ DEFAULT_TIMEZONE = "Asia/Shanghai"
 # 线程池最大工作线程数
 MAX_WORKERS = 5
 
-# 技术准确率阈值（赛题要求 ≥95%）
+# 技术准确率阈值（≥95%）
 ACCURACY_THRESHOLD = 0.95
 
 
@@ -478,7 +478,7 @@ class ContentPipeline:
         scene_type = kwargs.get("scene_type", "municipal")
         keywords = kwargs.get("keywords", ["环保", "绿色发展"])
 
-        # 时间节点参数（赛题核心要求）
+        # 时间节点参数
         timeline = kwargs.get("timeline", [])
         if not timeline:
             # 如果没有传入 timeline，自动生成当前时间节点的默认值
@@ -1610,7 +1610,7 @@ DEFAULT_PHASE_TEMPLATE = [
 class TaskManager:
     """任务拆分与管理器
 
-    赛题硬性要求：按时间节点自动触发内容生成。
+    核心功能：按时间节点自动触发内容生成。
     本模块负责：
     1. 任务拆分：将内容创作请求分解为多个阶段（crawl→RAG→generate→evaluate→revise→publish）
     2. 时间节点分配：根据最终截止时间，倒推每个阶段的截止时间
@@ -1951,7 +1951,7 @@ class TriggerRecord:
 class TriggerEngine:
     """时间节点触发引擎
 
-    赛题硬性要求：节点触发准确率 ≥ 98%。
+    核心指标：节点触发准确率 ≥ 98%。
 
     功能：
     1. 时间节点监控：定期检查待触发阶段，到期自动执行
@@ -2232,7 +2232,7 @@ class TriggerEngine:
     def get_trigger_accuracy(self) -> Dict[str, Any]:
         """获取节点触发准确率
 
-        赛题指标：节点触发准确率 ≥ 98%
+        核心指标：节点触发准确率 ≥ 98%
 
         Returns:
             {
