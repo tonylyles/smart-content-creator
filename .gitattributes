@@ -1,0 +1,28 @@
+# Normalize line endings for cross-platform collaboration
+* text=auto
+
+# Source code (LF in repo, native on checkout)
+*.py text eol=lf
+*.js text eol=lf
+*.ts text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.bat text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.mp4 binary
+*.mp3 binary
+*.db binary
+*.sqlite binary
+*.pyc binary
