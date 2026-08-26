@@ -9,7 +9,7 @@ print(f"Chrome path: {chrome_path}")
 
 # Try direct chromedriver with verbose logging
 result = subprocess.run(
-    [r"C:\Users\ZhuanZ1\chromedriver\chromedriver.exe", "--verbose", "--port=9515"],
+    [os.path.join(os.path.expanduser("~"), "chromedriver", "chromedriver.exe"), "--verbose", "--port=9515"],
     capture_output=True, text=True, timeout=5,
     encoding='utf-8', errors='replace'
 )
@@ -31,7 +31,7 @@ opts.add_argument("--disable-gpu")
 opts.add_experimental_option("excludeSwitches", ["enable-automation"])
 
 try:
-    svc = Service(r"C:\Users\ZhuanZ1\chromedriver\chromedriver.exe")
+    svc = Service(os.path.join(os.path.expanduser("~"), "chromedriver", "chromedriver.exe"))
     driver = webdriver.Chrome(service=svc, options=opts)
     print("SUCCESS! Chrome started!")
     driver.get("https://www.baidu.com")

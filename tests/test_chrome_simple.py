@@ -6,7 +6,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 
 chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-driver_path = r"C:\Users\ZhuanZ1\chromedriver\chromedriver.exe"
+driver_path = os.path.join(os.path.expanduser("~"), "chromedriver", "chromedriver.exe")
 
 opts = Options()
 opts.binary_location = chrome_path
