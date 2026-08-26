@@ -1,10 +1,10 @@
 """
-系统总入口 - 曾睿负责
+系统总入口
 
 功能：
 - 实例化所有核心组件（WorkflowEngine、TaskScheduler）
-- 导入并对接队友的模块（凯睿的 RAG/生成器、胡圳刚的数据层）
-- 将队友的功能注册到工作流引擎中
+- 导入并对接各功能模块（RAG/生成器、数据层）
+- 将各功能模块注册到工作流引擎中
 - 提供完整的测试入口，模拟端到端运行
 
 设计原则：
@@ -49,13 +49,13 @@ if _FORCE_REAL:
 else:
     print("[启动] ℹ️ 未检测到 LLM_API_KEY，将使用容错兜底模式")
 
-# ---------- 凯睿的模块 ----------
+# ---------- 内容生成模块 ----------
 
 # 1. PromptEngine（提示词引擎）
 try:
     from src.prompt_engine import PromptEngine
     PromptEngineClass = PromptEngine
-    print("[启动] ✅ 导入 PromptEngine（凯睿）")
+    print("[启动] ✅ 导入 PromptEngine")
 except ImportError as e:
     if _FORCE_REAL:
         print(f"[启动] ❌ PromptEngine 导入失败（防 Mock 模式，直接报错）: {e}")
@@ -82,7 +82,7 @@ except Exception as e:
 try:
     from src.rag.retriever import RAGRetriever
     RAGRetrieverClass = RAGRetriever
-    print("[启动] ✅ 导入 RAGRetriever（凯睿）")
+    print("[启动] ✅ 导入 RAGRetriever")
 except ImportError as e:
     if _FORCE_REAL:
         print(f"[启动] ❌ RAGRetriever 导入失败（防 Mock 模式，直接报错）: {e}")
@@ -121,7 +121,7 @@ except Exception as e:
 try:
     from src.generator import ContentGenerator
     ContentGeneratorClass = ContentGenerator
-    print("[启动] ✅ 导入 ContentGenerator（凯睿）")
+    print("[启动] ✅ 导入 ContentGenerator")
 except ImportError as e:
     if _FORCE_REAL:
         print(f"[启动] ❌ ContentGenerator 导入失败（防 Mock 模式，直接报错）: {e}")
@@ -154,13 +154,13 @@ except Exception as e:
             return {"markdown": f"# Mock: {topic}", "html": "", "generation_time_ms": 0}
 
 
-# ---------- 胡圳刚的模块 ----------
+# ---------- 数据层模块 ----------
 
 # 4. DataStorage（数据存储模块）
 try:
     from src.data_storage import DataStorage
     DataStorageClass = DataStorage
-    print("[启动] ✅ 导入 DataStorage（胡圳刚）")
+    print("[启动] ✅ 导入 DataStorage")
 except ImportError as e:
     print(f"[启动] ⚠️ 导入 DataStorage 失败: {e}，创建虚拟类")
     class DataStorageClass:
@@ -174,11 +174,11 @@ except ImportError as e:
         def delete(self, collection, doc_id):
             return False
 
-# 5. KnowledgeBase（知识库模块 - 胡圳刚）
+# 5. KnowledgeBase（知识库模块）
 try:
     from src.knowledge_base import KnowledgeBase
     KnowledgeBaseClass = KnowledgeBase
-    print("[启动] ✅ 导入 KnowledgeBase（胡圳刚）")
+    print("[启动] ✅ 导入 KnowledgeBase")
 except ImportError as e:
     print(f"[启动] ⚠️ 导入 KnowledgeBase 失败: {e}，创建虚拟类")
     class KnowledgeBaseClass:
@@ -189,13 +189,13 @@ except ImportError as e:
         def add_documents(self, documents):
             return 0
 
-# ---------- 凯睿的附加模块 ----------
+# ---------- 附加模块 ----------
 
-# 6. Evaluator（质量评估模块 - 凯睿）
+# 6. Evaluator（质量评估模块）
 try:
     from src.evaluator import Evaluator
     EvaluatorClass = Evaluator
-    print("[启动] ✅ 导入 Evaluator（凯睿）")
+    print("[启动] ✅ 导入 Evaluator")
 except ImportError as e:
     if _FORCE_REAL:
         print(f"[启动] ❌ Evaluator 导入失败（防 Mock 模式，直接报错）: {e}")
@@ -207,11 +207,11 @@ except ImportError as e:
         def evaluate(self, content, title="", scene_type="municipal"):
             return {"accuracy_score": 0.7, "compliance_score": 0.8, "readability_score": 0.75, "brand_alignment_score": 0.7, "overall": 0.74, "result": "needs_revision", "comments": "Mock"}
 
-# 7. WeChatPublisher（微信公众号发布 - 曾睿）
+# 7. WeChatPublisher（微信公众号发布）
 try:
     from src.publisher import WeChatPublisher
     WeChatPublisherClass = WeChatPublisher
-    print("[启动] ✅ 导入 WeChatPublisher（曾睿）")
+    print("[启动] ✅ 导入 WeChatPublisher")
 except ImportError as e:
     if _FORCE_REAL:
         print(f"[启动] ❌ WeChatPublisher 导入失败（防 Mock 模式，直接报错）: {e}")
@@ -233,7 +233,7 @@ except ImportError as e:
 
 try:
     from src.workflow import WorkflowEngine
-    print("[启动] ✅ 导入 WorkflowEngine（曾睿）")
+    print("[启动] ✅ 导入 WorkflowEngine")
 except ImportError as e:
     print(f"[启动] ❌ WorkflowEngine 导入失败: {e}")
     print("[启动] 💥 本方模块缺失，系统无法启动")
@@ -241,7 +241,7 @@ except ImportError as e:
 
 try:
     from src.scheduler import TaskScheduler
-    print("[启动] ✅ 导入 TaskScheduler（曾睿）")
+    print("[启动] ✅ 导入 TaskScheduler")
 except ImportError as e:
     print(f"[启动] ❌ TaskScheduler 导入失败: {e}")
     sys.exit(1)
@@ -298,7 +298,7 @@ def init_system():
         traceback.print_exc()
         data_storage = None
 
-    # 5. 创建 KnowledgeBase（胡圳刚）
+    # 5. 创建 KnowledgeBase
     try:
         kb_config = config.get("database", {"path": "data/knowledge.json"})
         knowledge_base = KnowledgeBaseClass(kb_config)
@@ -308,7 +308,7 @@ def init_system():
         traceback.print_exc()
         knowledge_base = None
 
-    # 6. 创建 Evaluator（凯睿）
+    # 6. 创建 Evaluator
     try:
         evaluator = EvaluatorClass(config=config, prompt_engine=prompt_engine)
         print("[初始化] ✅ Evaluator 实例化完成")
@@ -317,7 +317,7 @@ def init_system():
         traceback.print_exc()
         evaluator = None
 
-    # 7. 创建 WeChatPublisher（曾睿）
+    # 7. 创建 WeChatPublisher
     try:
         publisher = WeChatPublisherClass(config=config)
         print(f"[初始化] ✅ WeChatPublisher 实例化完成（模式: {publisher.get_mode()}）")
@@ -330,20 +330,20 @@ def init_system():
     engine = WorkflowEngine(config=config)
 
     if rag_system is not None and knowledge_base is not None:
-        # 将 KnowledgeBase 注入到 RAG 检索器中（凯睿的 RAGRetriever 支持此参数）
+        # 将 KnowledgeBase 注入到 RAG 检索器中（RAGRetriever 支持此参数）
         rag_system.knowledge_base = knowledge_base
         print("[初始化] ✅ KnowledgeBase 已注入 RAGRetriever")
 
     if rag_system is not None:
         # 注册 RAG 检索为 "rag_search" 阶段
-        # 凯睿的 retrieve 签名: retrieve(query, top_k, category, scene_type)
+        #  retrieve 签名: retrieve(query, top_k, category, scene_type)
         engine.register_stage("rag_search", rag_system.retrieve)
     else:
         print("[初始化] ⚠️ RAG 模块不可用，跳过 rag_search 注册")
 
     if generator is not None:
         # 注册内容生成为 "generate_article" 阶段
-        # 凯睿的 generate 签名: generate(topic, context, content_type, scene_type, keywords, ...)
+        #  generate 签名: generate(topic, context, content_type, scene_type, keywords, ...)
         # WorkflowEngine 会自动将 input_data 字典解包为 **kwargs 传入
         engine.register_stage("generate_article", generator.generate)
     else:
@@ -351,12 +351,12 @@ def init_system():
 
     if evaluator is not None:
         # 注册质量评估为 "evaluate" 阶段
-        # 凯睿的 evaluate 签名: evaluate(content, title, scene_type)
+        #  evaluate 签名: evaluate(content, title, scene_type)
         engine.register_stage("evaluate", evaluator.evaluate)
     else:
         print("[初始化] ⚠️ 评估模块不可用，跳过 evaluate 注册")
 
-    # ==================== 注册发布模块（曾睿）====================
+    # ==================== 注册发布模块====================
     if publisher is not None:
         # 注册一键发布为 "publish_article" 阶段
         engine.register_stage("publish_article", publisher.publish_article)
@@ -370,7 +370,7 @@ def init_system():
     # 生成器输出 → 评估器的 content 参数
     engine.register_transform("generate_article", WorkflowEngine.generator_to_evaluator_transform)
 
-    # ==================== 注册爬虫模块（胡圳刚）====================
+    # ==================== 注册爬虫模块====================
     spider_manager = None
     try:
         from src.spiders.spider_manager import SpiderManager
@@ -387,7 +387,7 @@ def init_system():
     # ==================== 6. 实例化 TaskScheduler ====================
     scheduler = TaskScheduler(config=config, workflow_engine=engine)
 
-    # ==================== 6.5 注入 DAG Pipeline（对接凯睿模块）====================
+    # ==================== 6.5 注入 DAG Pipeline（对接模块）====================
     # 将真实组件注入调度器的闭环流水线
     vector_db_for_pipeline = None
     try:
@@ -414,7 +414,7 @@ def init_system():
     # 配置默认定时任务
     scheduler_cfg = config.get("scheduler", {})
 
-    # 每天凌晨运行数据清洗流水线（胡圳刚的数据脚本）
+    # 每天凌晨运行数据清洗流水线（数据脚本）
     scheduler.add_daily_task(
         task_name="data_pipeline",
         func=scheduler._run_data_pipeline,

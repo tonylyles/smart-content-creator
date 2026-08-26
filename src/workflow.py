@@ -1,5 +1,5 @@
 """
-工作流引擎 - 曾睿负责
+工作流引擎
 
 功能：
 - 协调爬虫、RAG、生成、评估等所有模块的流水线执行
@@ -8,7 +8,7 @@
 - 智能参数传递：inspect.signature 自动过滤不匹配参数
 - 内置业务规则引擎（_apply_business_rules），region 自动补充 scene_type
 - Mock 数据兜底机制：队友模块返回空/报错时自动填充模拟数据
-- 兼容旧接口（run_task），适配凯睿 UI 的 engine.run({"action": "generate"}) 调用方式
+- 兼容旧接口（run_task），适配 UI 的 engine.run({"action": "generate"}) 调用方式
 """
 
 from typing import Dict, Any, Callable, Optional, List
@@ -232,12 +232,12 @@ class WorkflowEngine:
         print(f"[引擎] 🔗 流水线全部完成")
         return {"status": "success", "data": current_data, "stages_completed": intermediate_results}
 
-    # ==================== 兼容旧接口（适配凯睿 UI）====================
+    # ==================== 兼容旧接口（适配 UI）====================
 
     def run_task(self, task_data: dict) -> Any:
-        """兼容凯睿 UI 的旧接口
+        """兼容 UI 的旧接口
 
-        凯睿的 ui.py 调用方式: engine.run({"action": "generate", "title": ...})
+         ui.py 调用方式: engine.run({"action": "generate", "title": ...})
         本方法将旧格式转换为新的 stage 调用方式。
 
         Args:

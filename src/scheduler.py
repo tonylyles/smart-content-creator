@@ -1,5 +1,5 @@
 """
-核心调度引擎 - 曾睿负责
+核心调度引擎
 
 基于 APScheduler 3.x 的智能内容创作调度系统。
 实现核心功能：按时间节点自动触发内容生成。
@@ -334,10 +334,10 @@ class ContentPipeline:
                  generator=None, evaluator=None, config: dict = None):
         """
         Args:
-            spider_manager: SpiderManager 实例（胡圳刚）
-            vector_db: VectorDB 实例（刘凯睿）
-            generator: ContentGenerator 实例（刘凯睿）
-            evaluator: Evaluator 实例（刘凯睿）
+            spider_manager: SpiderManager 实例
+            vector_db: VectorDB 实例
+            generator: ContentGenerator 实例
+            evaluator: Evaluator 实例
             config: 全局配置字典
         """
         self.config = config or {}

@@ -1,10 +1,10 @@
-"""对接验证脚本 - 验证曾睿/凯睿模块对接是否正常"""
+"""对接验证脚本 - 验证各模块对接是否正常"""
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 print("=" * 60)
-print("  对接验证 - 刘凯睿 <-> 曾睿")
+print("  对接验证")
 print("=" * 60)
 
 errors = []

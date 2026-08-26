@@ -1,4 +1,4 @@
-"""数据清洗模块 - 胡圳刚负责"""
+"""数据清洗模块"""
 import re
 from typing import List, Dict, Any
 

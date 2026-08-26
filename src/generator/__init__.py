@@ -1,4 +1,4 @@
-"""generator子模块 - 刘凯睿负责
+"""generator子模块
 
 包含：
 - ContentGenerator: 内容生成器（主模块，从 generator.py 导入）

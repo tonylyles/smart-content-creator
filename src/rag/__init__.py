@@ -1,4 +1,4 @@
-"""RAG检索增强生成模块 - 刘凯睿负责"""
+"""RAG检索增强生成模块"""
 from src.rag.retriever import RAGRetriever
 from src.rag.vector_db import VectorDB
 

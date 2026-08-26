@@ -1,4 +1,4 @@
-"""用户界面 - 刘凯睿负责 + 曾睿（调度面板）
+"""用户界面
 
 功能：
 - Gradio Web界面（轻量级，无需前端构建）
@@ -55,7 +55,7 @@ class AppUI:
         """
         self.engine = workflow_engine
         self.config = config
-        self.scheduler = scheduler  # 曾睿的调度器
+        self.scheduler = scheduler  # 调度器
         self._app = None
 
     def run(self, host="127.0.0.1", port=7860, share=False):
@@ -541,7 +541,7 @@ class AppUI:
                 status_output = gr.Markdown(label="系统状态")
                 status_btn.click(lambda: self.show_status(), outputs=[status_output])
 
-            # ==================== Tab 6: 调度面板（曾睿） ====================
+            # ==================== Tab 6: 调度面板 ====================
             with gr.Tab("⏰ 发布计划"):
 
                 # --- 调度面板回调函数 ---
