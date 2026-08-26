@@ -1,49 +1,56 @@
-# Python
+# ===== Python =====
 .venv/
 venv/
 env/
 
-# Byte-compiled
+# ===== Byte-compiled =====
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
-# Environment
+# ===== Environment / secrets =====
 .env
 .env.local
+*.env.bak
 
-# Logs
+# ===== Logs =====
 *.log
 logs/
 
-# Database
+# ===== Database =====
 *.db
 *.sqlite
-data/
+*.sqlite3
 
-# IDE
+# ===== Data (generated) =====
+data/
+# 保留示例知识库（项目 RAG 的种子数据）
+!data/jikang_knowledge.md
+
+# ===== IDE =====
 .vscode/
 .idea/
 
-# OS
+# ===== OS =====
 .DS_Store
 Thumbs.db
 
-# Word temp
+# ===== Office temp =====
 ~$*.docx
 ~$*.doc
 ~$*.xlsx
 
-# Qdrant storage
+# ===== Qdrant storage =====
 qdrant_storage/
 
-# Chrome profile
+# ===== Chrome profile =====
 chrome_wechat_profile/
 
-# Published output (generated)
-data/published/
+# ===== WorkBuddy workspace memory =====
+.workbuddy/
 
-# Temp files
-*.tmp
-*.bak
+# ===== 内部/比赛材料（不随开源仓库分发）=====
+初赛展示文件/
+半决赛说明文件/
+更新日志.md
